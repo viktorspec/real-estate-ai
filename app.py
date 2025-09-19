@@ -46,7 +46,8 @@ T = {
 }
 
 # --- Google Sheets Access Keys ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1rFG4BhVjQ7tKDtTxSa3uSTdkzGmIB_Wc6OqeQQHeXTk/export?format=csv"
+SHEET_URL = st.secrets["SHEET_URL"]
+
 # ⚠️ Replace ID with your Google Sheets ID
 
 try:
@@ -117,4 +118,5 @@ if uploaded_file is not None:
         )
     else:
         st.error(T[lang]["csv_error"])
+
 
