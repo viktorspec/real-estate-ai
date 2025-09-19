@@ -3,21 +3,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(page_title="🏡 AI Real Estate Predictor", layout="centered")
 
 # --- Language selector ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["English", "Русский"])
 
-# --- Dictionary for translations ---
 T = {
     "English": {
         "auth_title": "🔑 Authorization",
         "auth_prompt": "Enter your access key:",
-        "auth_error": "⛔ Access denied. Please enter a valid key.",
-        "auth_success": "✅ Access granted! Welcome.",
-        "title": "🏡 AI-Powered Real Estate Price Predictor",
-        "upload": "Upload CSV (columns required: city, sqft, price)",
+        "auth_error": "⛔ Invalid key",
+        "auth_expired": "⛔ Key expired",
+        "auth_success": "✅ Access granted",
+        "admin_success": "✅ Admin access granted",
+        "title": "🏡 AI Real Estate Price Predictor",
+        "upload": "Upload CSV (columns: city, sqft, price)",
         "data_preview": "### Data preview",
         "plot": "### Price vs. Square Footage",
         "xlabel": "Square Footage (sqft)",
@@ -25,16 +27,18 @@ T = {
         "prediction_input": "Enter square footage:",
         "prediction_result": "Predicted price: {price:,} €",
         "download": "📥 Download predictions as Excel",
-        "csv_error": "CSV must contain the following columns: city, sqft, price"
+        "csv_error": "CSV must contain columns: city, sqft, price"
     },
     "Русский": {
         "auth_title": "🔑 Авторизация",
         "auth_prompt": "Введите ключ доступа:",
-        "auth_error": "⛔ Доступ запрещён. Введите правильный ключ.",
-        "auth_success": "✅ Доступ разрешён! Добро пожаловать.",
+        "auth_error": "⛔ Неверный ключ",
+        "auth_expired": "⛔ Срок действия ключа истёк",
+        "auth_success": "✅ Доступ разрешён",
+        "admin_success": "✅ Доступ администратора",
         "title": "🏡 AI-Прогноз цен недвижимости",
         "upload": "Загрузите CSV (колонки: city, sqft, price)",
-        "data_preview": "### Данные (первые строки)",
+        "data_preview": "### Предпросмотр данных",
         "plot": "### Зависимость цены от площади",
         "xlabel": "Площадь (кв. футы)",
         "ylabel": "Цена (€)",
@@ -45,31 +49,51 @@ T = {
     }
 }
 
-# --- Google Sheets Access Keys ---
+# --- Load keys from Google Sheets ---
 SHEET_URL = st.secrets["SHEET_URL"]
-
-# ⚠️ Replace ID with your Google Sheets ID
 
 try:
     keys_df = pd.read_csv(SHEET_URL)
-    VALID_KEYS = set(keys_df["key"].astype(str).tolist())
+    keys_df["expiry_date"] = pd.to_datetime(keys_df["expiry_date"], errors="coerce")
 except Exception as e:
-    st.error("Error: failed to load keys from Google Sheets")
+    st.error("❌ Cannot load keys from Google Sheets.")
     st.stop()
+
+# --- Check key validity ---
+def check_key_valid(user_key):
+    if user_key == st.secrets["ADMIN_KEY"]:
+        return True, "admin", T[lang]["admin_success"]
+
+    row = keys_df[keys_df["key"] == user_key]
+    if row.empty:
+        return False, "user", T[lang]["auth_error"]
+
+    expiry = row["expiry_date"].values[0]
+    if pd.isna(expiry) or expiry >= pd.Timestamp(datetime.now()):
+        return True, "user", T[lang]["auth_success"]
+    else:
+        return False, "user", T[lang]["auth_expired"]
 
 # --- Authorization ---
 st.sidebar.title(T[lang]["auth_title"])
 password = st.sidebar.text_input(T[lang]["auth_prompt"], type="password")
 
-if password not in VALID_KEYS:
-    st.error(T[lang]["auth_error"])
-    st.stop()
+valid, role, message = check_key_valid(password)
 
-# --- After login ---
-st.success(T[lang]["auth_success"])
+if not valid:
+    st.error(message)
+    st.stop()
+else:
+    st.success(message)
+
+# --- Admin Panel ---
+if role == "admin":
+    st.sidebar.markdown("### 🛠 Admin Panel")
+    st.sidebar.info("Future: view logs, manage users, etc.")
+
+# --- Main App ---
 st.title(T[lang]["title"])
 
-# --- File upload ---
 uploaded_file = st.file_uploader(T[lang]["upload"], type=["csv"])
 
 if uploaded_file is not None:
@@ -79,7 +103,6 @@ if uploaded_file is not None:
     st.dataframe(df.head())
 
     if {"city", "sqft", "price"}.issubset(df.columns):
-        # Train model
         X = df[["sqft"]]
         y = df["price"]
 
@@ -118,5 +141,7 @@ if uploaded_file is not None:
         )
     else:
         st.error(T[lang]["csv_error"])
+
+
 
 
