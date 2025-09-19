@@ -53,7 +53,7 @@ T = {
 SHEET_URL = st.secrets["SHEET_URL"]
 
 try:
-    keys_df = pd.read_csv(SHEET_URL)
+    keys_df = pd.read_csv("SHEET_URL")
     keys_df["expiry_date"] = pd.to_datetime(keys_df["expiry_date"], errors="coerce")
 except Exception as e:
     st.error("❌ Cannot load keys from Google Sheets.")
@@ -141,6 +141,7 @@ if uploaded_file is not None:
         )
     else:
         st.error(T[lang]["csv_error"])
+
 
 
 
