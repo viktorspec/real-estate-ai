@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 from io import BytesIO
 from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="🏡 AI Real Estate Predictor", layout="centered")
 
@@ -27,7 +29,16 @@ T = {
         "prediction_input": "Enter square footage:",
         "prediction_result": "Predicted price: {price:,} €",
         "download": "📥 Download predictions as Excel",
-        "csv_error": "CSV must contain columns: city, sqft, price"
+        "csv_error": "CSV must contain columns: city, sqft, price",
+        "admin_title": "👑 Admin: Manage Users",
+        "current_keys": "📋 Current Keys",
+        "add_key": "➕ Add New Key",
+        "delete_key": "🗑 Delete Key",
+        "expiry_optional": "Expiry date (optional)",
+        "delete_prompt": "Enter key to delete",
+        "extend_key": "⏳ Extend Key",
+        "extend_prompt": "Enter key to extend",
+        "extend_date": "New expiry date"
     },
     "Русский": {
         "auth_title": "🔑 Авторизация",
@@ -45,26 +56,69 @@ T = {
         "prediction_input": "Введите площадь:",
         "prediction_result": "Прогноз цены: {price:,} €",
         "download": "📥 Скачать прогнозы в Excel",
-        "csv_error": "CSV должен содержать колонки: city, sqft, price"
+        "csv_error": "CSV должен содержать колонки: city, sqft, price",
+        "admin_title": "👑 Админ: Управление пользователями",
+        "current_keys": "📋 Текущие ключи",
+        "add_key": "➕ Добавить ключ",
+        "delete_key": "🗑 Удалить ключ",
+        "expiry_optional": "Дата окончания (необязательно)",
+        "delete_prompt": "Введите ключ для удаления",
+        "extend_key": "⏳ Продлить ключ",
+        "extend_prompt": "Введите ключ для продления",
+        "extend_date": "Новая дата окончания"
     }
 }
 
-# --- Load keys from Google Sheets ---
-SHEET_URL = st.secrets["SHEET_URL"]
+# --- Google Sheets API connection ---
+creds_dict = dict(st.secrets["GCP_CREDENTIALS"])
+creds = Credentials.from_service_account_info(
+    creds_dict,
+    scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+)
+client = gspread.authorize(creds)
+SHEET_ID = st.secrets["SHEET_ID"]
+sheet = client.open_by_key(SHEET_ID).sheet1
 
-try:
-    keys_df = pd.read_csv(SHEET_URL)
-    keys_df["expiry_date"] = pd.to_datetime(keys_df["expiry_date"], errors="coerce")
-except Exception as e:
-    st.error("❌ Cannot load keys from Google Sheets.")
-    st.stop()
+# --- Load keys ---
+def load_keys():
+    records = sheet.get_all_records()
+    df = pd.DataFrame(records)
+    if "expiry_date" in df.columns:
+        df["expiry_date"] = pd.to_datetime(df["expiry_date"], errors="coerce")
+    return df
+
+# --- Add key ---
+def add_key(new_key, expiry_date=""):
+    sheet.append_row([new_key, expiry_date])
+    st.success(f"✅ Key {new_key} added!")
+
+# --- Delete key ---
+def delete_key(del_key):
+    records = sheet.get_all_records()
+    for idx, row in enumerate(records, start=2):  # строка 1 — заголовки
+        if row["key"] == del_key:
+            sheet.delete_rows(idx)
+            st.success(f"✅ Key {del_key} deleted!")
+            return
+    st.error("⚠️ Key not found")
+
+# --- Extend key ---
+def extend_key(ext_key, new_expiry):
+    records = sheet.get_all_records()
+    for idx, row in enumerate(records, start=2):
+        if row["key"] == ext_key:
+            sheet.update_cell(idx, 2, str(new_expiry))
+            st.success(f"✅ Key {ext_key} extended until {new_expiry}")
+            return
+    st.error("⚠️ Key not found")
 
 # --- Check key validity ---
 def check_key_valid(user_key):
     if user_key == st.secrets["ADMIN_KEY"]:
         return True, "admin", T[lang]["admin_success"]
 
-    row = keys_df[keys_df["key"] == user_key]
+    df = load_keys()
+    row = df[df["key"] == user_key]
     if row.empty:
         return False, "user", T[lang]["auth_error"]
 
@@ -88,59 +142,90 @@ else:
 
 # --- Admin Panel ---
 if role == "admin":
-    st.sidebar.markdown("### 🛠 Admin Panel")
-    st.sidebar.info("Future: view logs, manage users, etc.")
+    st.title(T[lang]["admin_title"])
+
+    # Просмотр ключей
+    st.subheader(T[lang]["current_keys"])
+    keys_df = load_keys()
+    st.dataframe(keys_df)
+
+    # Добавление нового ключа
+    st.subheader(T[lang]["add_key"])
+    new_key = st.text_input("Enter new key")
+    expiry_date = st.date_input(T[lang]["expiry_optional"], value=None)
+    if st.button("Add Key"):
+        if new_key.strip() == "":
+            st.error("⚠️ Key cannot be empty")
+        else:
+            add_key(new_key, str(expiry_date) if expiry_date else "")
+
+    # Удаление ключа
+    st.subheader(T[lang]["delete_key"])
+    del_key = st.text_input(T[lang]["delete_prompt"])
+    if st.button("Delete Key"):
+        if del_key.strip() == "":
+            st.error("⚠️ Please enter a key")
+        else:
+            delete_key(del_key)
+
+    # Продление ключа
+    st.subheader(T[lang]["extend_key"])
+    ext_key = st.text_input(T[lang]["extend_prompt"])
+    new_expiry = st.date_input(T[lang]["extend_date"], value=datetime.now())
+    if st.button("Extend Key"):
+        if ext_key.strip() == "":
+            st.error("⚠️ Please enter a key")
+        else:
+            extend_key(ext_key, new_expiry)
 
 # --- Main App ---
-st.title(T[lang]["title"])
+if role in ["user", "admin"]:
+    st.title(T[lang]["title"])
 
-uploaded_file = st.file_uploader(T[lang]["upload"], type=["csv"])
+    uploaded_file = st.file_uploader(T[lang]["upload"], type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+        st.write(T[lang]["data_preview"])
+        st.dataframe(df.head())
 
-    st.write(T[lang]["data_preview"])
-    st.dataframe(df.head())
+        if {"city", "sqft", "price"}.issubset(df.columns):
+            X = df[["sqft"]]
+            y = df["price"]
 
-    if {"city", "sqft", "price"}.issubset(df.columns):
-        X = df[["sqft"]]
-        y = df["price"]
+            model = LinearRegression()
+            model.fit(X, y)
 
-        model = LinearRegression()
-        model.fit(X, y)
+            st.write(T[lang]["plot"])
+            fig, ax = plt.subplots()
+            for city in df['city'].unique():
+                city_data = df[df['city'] == city]
+                ax.scatter(city_data["sqft"], city_data["price"], label=city)
 
-        # --- Plot ---
-        st.write(T[lang]["plot"])
-        fig, ax = plt.subplots()
-        for city in df['city'].unique():
-            city_data = df[df['city'] == city]
-            ax.scatter(city_data["sqft"], city_data["price"], label=city)
+            ax.plot(X, model.predict(X), color="red", linewidth=2, label="Prediction")
+            ax.set_xlabel(T[lang]["xlabel"])
+            ax.set_ylabel(T[lang]["ylabel"])
+            ax.legend()
+            st.pyplot(fig)
 
-        ax.plot(X, model.predict(X), color="red", linewidth=2, label="Prediction")
-        ax.set_xlabel(T[lang]["xlabel"])
-        ax.set_ylabel(T[lang]["ylabel"])
-        ax.legend()
-        st.pyplot(fig)
+            sqft_value = st.number_input(T[lang]["prediction_input"], min_value=200, max_value=5000, step=50)
+            if sqft_value:
+                price_pred = model.predict([[sqft_value]])[0]
+                st.success(T[lang]["prediction_result"].format(price=int(price_pred)))
 
-        # --- Prediction ---
-        sqft_value = st.number_input(T[lang]["prediction_input"], min_value=200, max_value=5000, step=50)
-        if sqft_value:
-            price_pred = model.predict([[sqft_value]])[0]
-            st.success(T[lang]["prediction_result"].format(price=int(price_pred)))
+            df["predicted_price"] = model.predict(df[["sqft"]]).astype(int)
+            output = BytesIO()
+            df.to_excel(output, index=False, engine="openpyxl")
+            st.download_button(
+                label=T[lang]["download"],
+                data=output.getvalue(),
+                file_name="real_estate_predictions.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.error(T[lang]["csv_error"])
 
-        # --- Export to Excel ---
-        df["predicted_price"] = model.predict(df[["sqft"]]).astype(int)
 
-        output = BytesIO()
-        df.to_excel(output, index=False, engine="openpyxl")
-        st.download_button(
-            label=T[lang]["download"],
-            data=output.getvalue(),
-            file_name="real_estate_predictions.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.error(T[lang]["csv_error"])
 
 
 
