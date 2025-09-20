@@ -1,5 +1,8 @@
 streamlit
 pandas
-scikit-learn
 matplotlib
+scikit-learn
 openpyxl
+gspread
+google-auth
+
