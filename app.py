@@ -38,7 +38,9 @@ T = {
         "delete_prompt": "Enter key to delete",
         "extend_key": "⏳ Extend Key",
         "extend_prompt": "Enter key to extend",
-        "extend_date": "New expiry date"
+        "extend_date": "New expiry date",
+        "email_prompt": "Enter your email:",
+        "logs": "📜 Login Logs"
     },
     "Русский": {
         "auth_title": "🔑 Авторизация",
@@ -65,7 +67,9 @@ T = {
         "delete_prompt": "Введите ключ для удаления",
         "extend_key": "⏳ Продлить ключ",
         "extend_prompt": "Введите ключ для продления",
-        "extend_date": "Новая дата окончания"
+        "extend_date": "Новая дата окончания",
+        "email_prompt": "Введите ваш email:",
+        "logs": "📜 Логи входов"
     }
 }
 
@@ -89,13 +93,13 @@ def load_keys():
 
 # --- Add key ---
 def add_key(new_key, expiry_date=""):
-    sheet.append_row([new_key, expiry_date])
+    sheet.append_row([new_key, expiry_date, ""])
     st.success(f"✅ Key {new_key} added!")
 
 # --- Delete key ---
 def delete_key(del_key):
     records = sheet.get_all_records()
-    for idx, row in enumerate(records, start=2):  # строка 1 — заголовки
+    for idx, row in enumerate(records, start=2):
         if row["key"] == del_key:
             sheet.delete_rows(idx)
             st.success(f"✅ Key {del_key} deleted!")
@@ -112,33 +116,65 @@ def extend_key(ext_key, new_expiry):
             return
     st.error("⚠️ Key not found")
 
-# --- Check key validity ---
-def check_key_valid(user_key):
+# --- Logging system ---
+def log_access(user_key, email, role):
+    try:
+        log_sheet = client.open_by_key(SHEET_ID).worksheet("logs")
+    except:
+        # если листа нет → создаём новый
+        sh = client.open_by_key(SHEET_ID)
+        sh.add_worksheet(title="logs", rows="1000", cols="4")
+        log_sheet = sh.worksheet("logs")
+        log_sheet.append_row(["timestamp", "key", "email", "role"])
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_sheet.append_row([timestamp, user_key, email, role])
+
+# --- Check key validity + bind user ---
+def check_key_valid(user_key, email=""):
     if user_key == st.secrets["ADMIN_KEY"]:
         return True, "admin", T[lang]["admin_success"]
 
     df = load_keys()
     row = df[df["key"] == user_key]
+
     if row.empty:
         return False, "user", T[lang]["auth_error"]
 
     expiry = row["expiry_date"].values[0]
-    if pd.isna(expiry) or expiry >= pd.Timestamp(datetime.now()):
-        return True, "user", T[lang]["auth_success"]
-    else:
+    user_val = row["user"].values[0] if "user" in df.columns else ""
+
+    if not pd.isna(expiry) and expiry < pd.Timestamp(datetime.now()):
         return False, "user", T[lang]["auth_expired"]
+
+    if user_val:
+        if email and email != user_val:
+            return False, "user", f"⚠️ This key is already used by {user_val}"
+        else:
+            return True, "user", T[lang]["auth_success"]
+    else:
+        if email:
+            records = sheet.get_all_records()
+            for idx, r in enumerate(records, start=2):
+                if r["key"] == user_key:
+                    sheet.update_cell(idx, 3, email)
+                    st.success(f"✅ Key {user_key} linked to {email}")
+                    break
+        return True, "user", T[lang]["auth_success"]
 
 # --- Authorization ---
 st.sidebar.title(T[lang]["auth_title"])
 password = st.sidebar.text_input(T[lang]["auth_prompt"], type="password")
+email = st.sidebar.text_input(T[lang]["email_prompt"])
 
-valid, role, message = check_key_valid(password)
+valid, role, message = check_key_valid(password, email)
 
 if not valid:
     st.error(message)
     st.stop()
 else:
     st.success(message)
+    log_access(password, email, role)  # запись в лог
 
 # --- Admin Panel ---
 if role == "admin":
@@ -177,6 +213,15 @@ if role == "admin":
             st.error("⚠️ Please enter a key")
         else:
             extend_key(ext_key, new_expiry)
+
+    # Просмотр логов
+    st.subheader(T[lang]["logs"])
+    try:
+        logs = client.open_by_key(SHEET_ID).worksheet("logs").get_all_records()
+        logs_df = pd.DataFrame(logs)
+        st.dataframe(logs_df)
+    except:
+        st.info("ℹ️ No logs yet.")
 
 # --- Main App ---
 if role in ["user", "admin"]:
@@ -224,6 +269,8 @@ if role in ["user", "admin"]:
             )
         else:
             st.error(T[lang]["csv_error"])
+
+
 
 
 
