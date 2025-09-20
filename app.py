@@ -6,6 +6,7 @@ from io import BytesIO
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+import requests  # для получения IP
 
 st.set_page_config(page_title="🏡 AI Real Estate Predictor", layout="centered")
 
@@ -40,7 +41,9 @@ T = {
         "extend_prompt": "Enter key to extend",
         "extend_date": "New expiry date",
         "email_prompt": "Enter your email:",
-        "logs": "📜 Login Logs"
+        "logs": "📜 Login Logs",
+        "download_logs": "📥 Download Logs as Excel",
+        "filter_email": "🔍 Filter logs by email"
     },
     "Русский": {
         "auth_title": "🔑 Авторизация",
@@ -69,7 +72,9 @@ T = {
         "extend_prompt": "Введите ключ для продления",
         "extend_date": "Новая дата окончания",
         "email_prompt": "Введите ваш email:",
-        "logs": "📜 Логи входов"
+        "logs": "📜 Логи входов",
+        "download_logs": "📥 Скачать логи в Excel",
+        "filter_email": "🔍 Фильтр логов по email"
     }
 }
 
@@ -82,6 +87,13 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 SHEET_ID = st.secrets["SHEET_ID"]
 sheet = client.open_by_key(SHEET_ID).sheet1
+
+# --- Helper: get user IP ---
+def get_user_ip():
+    try:
+        return requests.get("https://api.ipify.org").text
+    except:
+        return "unknown"
 
 # --- Load keys ---
 def load_keys():
@@ -116,19 +128,39 @@ def extend_key(ext_key, new_expiry):
             return
     st.error("⚠️ Key not found")
 
-# --- Logging system ---
+# --- Logging system with auto-clean ---
 def log_access(user_key, email, role):
     try:
         log_sheet = client.open_by_key(SHEET_ID).worksheet("logs")
     except:
-        # если листа нет → создаём новый
         sh = client.open_by_key(SHEET_ID)
-        sh.add_worksheet(title="logs", rows="1000", cols="4")
+        sh.add_worksheet(title="logs", rows="1000", cols="5")
         log_sheet = sh.worksheet("logs")
-        log_sheet.append_row(["timestamp", "key", "email", "role"])
+        log_sheet.append_row(["timestamp", "key", "email", "role", "ip"])
 
+    # --- Очистка старых записей (30 дней) ---
+    logs = log_sheet.get_all_records()
+    cutoff = pd.Timestamp(datetime.now()) - pd.Timedelta(days=30)
+    rows_to_keep = [0]
+    for idx, row in enumerate(logs, start=2):
+        try:
+            ts = pd.to_datetime(row["timestamp"])
+            if ts >= cutoff:
+                rows_to_keep.append(idx)
+        except:
+            rows_to_keep.append(idx)
+
+    if len(rows_to_keep) < len(logs):
+        all_values = log_sheet.get_all_values()
+        header = all_values[0]
+        new_data = [header] + [all_values[i-1] for i in rows_to_keep[1:]]
+        log_sheet.clear()
+        log_sheet.update(new_data)
+
+    # --- Запись новой строки ---
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_sheet.append_row([timestamp, user_key, email, role])
+    ip = get_user_ip()
+    log_sheet.append_row([timestamp, user_key, email, role, ip])
 
 # --- Check key validity + bind user ---
 def check_key_valid(user_key, email=""):
@@ -174,18 +206,16 @@ if not valid:
     st.stop()
 else:
     st.success(message)
-    log_access(password, email, role)  # запись в лог
+    log_access(password, email, role)
 
-# --- Admin Panel ---
+# --- Admin Panel (ONLY ADMIN) ---
 if role == "admin":
     st.title(T[lang]["admin_title"])
 
-    # Просмотр ключей
     st.subheader(T[lang]["current_keys"])
     keys_df = load_keys()
     st.dataframe(keys_df)
 
-    # Добавление нового ключа
     st.subheader(T[lang]["add_key"])
     new_key = st.text_input("Enter new key")
     expiry_date = st.date_input(T[lang]["expiry_optional"], value=None)
@@ -195,35 +225,42 @@ if role == "admin":
         else:
             add_key(new_key, str(expiry_date) if expiry_date else "")
 
-    # Удаление ключа
     st.subheader(T[lang]["delete_key"])
     del_key = st.text_input(T[lang]["delete_prompt"])
     if st.button("Delete Key"):
-        if del_key.strip() == "":
-            st.error("⚠️ Please enter a key")
-        else:
-            delete_key(del_key)
+        delete_key(del_key)
 
-    # Продление ключа
     st.subheader(T[lang]["extend_key"])
     ext_key = st.text_input(T[lang]["extend_prompt"])
     new_expiry = st.date_input(T[lang]["extend_date"], value=datetime.now())
     if st.button("Extend Key"):
-        if ext_key.strip() == "":
-            st.error("⚠️ Please enter a key")
-        else:
-            extend_key(ext_key, new_expiry)
+        extend_key(ext_key, new_expiry)
 
-    # Просмотр логов
     st.subheader(T[lang]["logs"])
     try:
         logs = client.open_by_key(SHEET_ID).worksheet("logs").get_all_records()
         logs_df = pd.DataFrame(logs)
-        st.dataframe(logs_df)
+
+        # --- Фильтр по email ---
+        email_filter = st.text_input(T[lang]["filter_email"])
+        if email_filter:
+            filtered_logs = logs_df[logs_df["email"].str.contains(email_filter, case=False, na=False)]
+            st.dataframe(filtered_logs)
+        else:
+            st.dataframe(logs_df)
+
+        output = BytesIO()
+        logs_df.to_excel(output, index=False, engine="openpyxl")
+        st.download_button(
+            label=T[lang]["download_logs"],
+            data=output.getvalue(),
+            file_name="login_logs.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     except:
         st.info("ℹ️ No logs yet.")
 
-# --- Main App ---
+# --- Main App (Users + Admin) ---
 if role in ["user", "admin"]:
     st.title(T[lang]["title"])
 
@@ -269,13 +306,3 @@ if role in ["user", "admin"]:
             )
         else:
             st.error(T[lang]["csv_error"])
-
-
-
-
-
-
-
-
-
-
