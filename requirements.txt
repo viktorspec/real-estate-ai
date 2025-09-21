@@ -2,7 +2,11 @@ streamlit
 pandas
 matplotlib
 scikit-learn
+xgboost
 openpyxl
 gspread
 google-auth
+requests
+
+
 
