@@ -1,4 +1,4 @@
-# app.py — AI Real Estate SaaS с тарифами Basic / Pro и выбором моделей
+# app.py — AI Real Estate SaaS с тарифами Basic / Pro, выбором моделей и корректным графиком
 
 import streamlit as st
 import pandas as pd
@@ -216,49 +216,6 @@ else:
     st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
 
-# --- Admin Panel ---
-if role == "admin":
-    st.title(T[lang]["admin_title"])
-    keys_df = load_keys()
-    st.dataframe(keys_df)
-
-    new_key = st.text_input("Enter new key")
-    expiry_date = st.date_input(T[lang]["expiry_optional"], value=None)
-    plan_type = st.selectbox("Plan", ["Basic", "Pro"])
-    if st.button("Add Key"):
-        if new_key.strip() == "":
-            st.error("⚠️ Key cannot be empty")
-        else:
-            add_key(new_key, str(expiry_date) if expiry_date else "", plan_type)
-
-    del_key = st.text_input(T[lang]["delete_prompt"])
-    if st.button("Delete Key"):
-        delete_key(del_key)
-
-    ext_key = st.text_input(T[lang]["extend_prompt"])
-    new_expiry = st.date_input(T[lang]["extend_date"], value=datetime.now())
-    if st.button("Extend Key"):
-        extend_key(ext_key, new_expiry)
-
-    try:
-        logs = client.open_by_key(SHEET_ID).worksheet("logs").get_all_records()
-        logs_df = pd.DataFrame(logs)
-        email_filter = st.text_input(T[lang]["filter_email"])
-        if email_filter:
-            logs_df = logs_df[logs_df["email"].str.contains(email_filter, case=False, na=False)]
-        st.dataframe(logs_df)
-
-        output = BytesIO()
-        logs_df.to_excel(output, index=False, engine="openpyxl")
-        st.download_button(
-            label=T[lang]["download_logs"],
-            data=output.getvalue(),
-            file_name="login_logs.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except:
-        st.info("ℹ️ No logs yet.")
-
 # --- Main App ---
 if role in ["user", "admin"]:
     st.title(T[lang]["title"])
@@ -275,14 +232,14 @@ if role in ["user", "admin"]:
 
             # --- Basic Plan: only Linear Regression ---
             if plan == "Basic":
-                st.info("🔑 Ваш тариф: Basic — только Linear Regression.")
+                st.info("🔑 Your plan: Basic — only Linear Regression.")
                 model = LinearRegression()
                 model.fit(X, y)
 
             # --- Pro Plan: multiple models ---
             elif plan == "Pro":
-                st.success("🚀 Ваш тариф: Pro — выбор модели.")
-                model_choice = st.selectbox("Выберите модель:", ["Linear Regression", "Random Forest", "XGBoost"])
+                st.success("🚀 Your plan: Pro — choose model.")
+                model_choice = st.selectbox("Select model:", ["Linear Regression", "Random Forest", "XGBoost"])
 
                 if model_choice == "Linear Regression":
                     model = LinearRegression()
@@ -293,14 +250,29 @@ if role in ["user", "admin"]:
 
                 model.fit(X, y)
 
-            # --- Plot ---
+            # --- Correct Plot ---
             st.write(T[lang]["plot"])
             fig, ax = plt.subplots()
+
+            # Scatter of real data
             for city in df["city"].unique():
                 city_data = df[df["city"] == city]
                 ax.scatter(city_data["sqft"], city_data["price"], label=city)
 
-            ax.plot(df["sqft"], model.predict(X), color="red", linewidth=2, label="Prediction")
+            # Prediction line (sqft, with fixed rooms=3, bathrooms=2)
+            sqft_range = pd.DataFrame({
+                "sqft": range(int(df["sqft"].min()), int(df["sqft"].max()), 10),
+                "rooms": [3] * len(range(int(df["sqft"].min()), int(df["sqft"].max()), 10)),
+                "bathrooms": [2] * len(range(int(df["sqft"].min()), int(df["sqft"].max()), 10))
+            })
+            ax.plot(
+                sqft_range["sqft"],
+                model.predict(sqft_range),
+                color="red",
+                linewidth=2,
+                label="Prediction"
+            )
+
             ax.set_xlabel(T[lang]["xlabel"])
             ax.set_ylabel(T[lang]["ylabel"])
             ax.legend()
