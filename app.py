@@ -1,4 +1,4 @@
-# app.py — версия с планами (Basic / Pro / Trial), логами и автоочисткой
+# app.py — AI Real Estate SaaS с авторизацией, тарифами и логами
 
 import streamlit as st
 import pandas as pd
@@ -10,9 +10,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import requests
 
-st.set_page_config(page_title="🏡 AI Real Estate Predictor", layout="centered")
+st.set_page_config(page_title="🏡 AI Real Estate SaaS", layout="centered")
 
-# --- Выбор языка интерфейса ---
+# --- Выбор языка ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["English", "Русский"])
 
 T = {
@@ -21,8 +21,7 @@ T = {
         "auth_prompt": "Enter your access key:",
         "auth_error": "⛔ Invalid key",
         "auth_expired": "⛔ Key expired",
-        "auth_trial_expired": "⛔ Trial expired (7 days limit)",
-        "auth_success": "✅ Access granted",
+        "auth_success": "✅ Access granted (Plan: {plan})",
         "admin_success": "✅ Admin access granted",
         "title": "🏡 AI Real Estate Price Predictor",
         "upload": "Upload CSV (columns: city, sqft, rooms, bathrooms, price)",
@@ -53,8 +52,7 @@ T = {
         "auth_prompt": "Введите ключ доступа:",
         "auth_error": "⛔ Неверный ключ",
         "auth_expired": "⛔ Срок действия ключа истёк",
-        "auth_trial_expired": "⛔ Trial истёк (ограничение 7 дней)",
-        "auth_success": "✅ Доступ разрешён",
+        "auth_success": "✅ Доступ разрешён (Тариф: {plan})",
         "admin_success": "✅ Доступ администратора",
         "title": "🏡 AI-Прогноз цен недвижимости",
         "upload": "Загрузите CSV (колонки: city, sqft, rooms, bathrooms, price)",
@@ -92,7 +90,7 @@ client = gspread.authorize(creds)
 SHEET_ID = st.secrets["SHEET_ID"]
 sheet = client.open_by_key(SHEET_ID).sheet1
 
-# --- Получение IP пользователя ---
+# --- Получение IP ---
 def get_user_ip():
     try:
         return requests.get("https://api.ipify.org").text
@@ -110,7 +108,7 @@ def load_keys():
 # --- Добавление ключа ---
 def add_key(new_key, expiry_date="", plan="Basic"):
     sheet.append_row([new_key, expiry_date, "", plan])
-    st.success(f"✅ Key {new_key} ({plan}) added!")
+    st.success(f"✅ Key {new_key} added!")
 
 # --- Удаление ключа ---
 def delete_key(del_key):
@@ -132,37 +130,43 @@ def extend_key(ext_key, new_expiry):
             return
     st.error("⚠️ Key not found")
 
-# --- Логирование входов с автоочисткой ---
+# --- Логирование входов ---
 def log_access(user_key, email, role, plan="Basic"):
     try:
-        log_sheet = client.open_by_key(SHEET_ID).worksheet("logs")
-    except:
-        sh = client.open_by_key(SHEET_ID)
-        sh.add_worksheet(title="logs", rows="1000", cols="6")
-        log_sheet = sh.worksheet("logs")
-        log_sheet.append_row(["timestamp", "key", "email", "role", "plan", "ip"])
-
-    # автоочистка старых записей (30 дней)
-    logs = log_sheet.get_all_records()
-    cutoff = datetime.now() - timedelta(days=30)
-    new_data = [["timestamp", "key", "email", "role", "plan", "ip"]]
-
-    for row in logs:
         try:
-            ts = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S")
-            if ts >= cutoff:
-                new_data.append(list(row.values()))
+            log_sheet = client.open_by_key(SHEET_ID).worksheet("logs")
         except:
-            new_data.append(list(row.values()))
+            sh = client.open_by_key(SHEET_ID)
+            log_sheet = sh.add_worksheet(title="logs", rows="1000", cols="6")
+            log_sheet.append_row(["timestamp", "key", "email", "role", "plan", "ip"])
 
-    if len(new_data) != len(logs) + 1:
-        log_sheet.clear()
-        log_sheet.update(new_data)
+        headers = log_sheet.row_values(1)
+        expected = ["timestamp", "key", "email", "role", "plan", "ip"]
+        if headers != expected:
+            log_sheet.clear()
+            log_sheet.append_row(expected)
 
-    # новая запись
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ip = get_user_ip()
-    log_sheet.append_row([timestamp, user_key, email, role, plan, ip])
+        logs = log_sheet.get_all_records()
+        cutoff = datetime.now() - timedelta(days=30)
+        new_data = [expected]
+
+        for row in logs:
+            try:
+                ts = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S")
+                if ts >= cutoff:
+                    new_data.append([row["timestamp"], row["key"], row["email"], row["role"], row["plan"], row["ip"]])
+            except:
+                new_data.append([row["timestamp"], row["key"], row["email"], row["role"], row["plan"], row["ip"]])
+
+        if len(new_data) != len(logs) + 1:
+            log_sheet.clear()
+            log_sheet.update(new_data)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ip = get_user_ip()
+        log_sheet.append_row([timestamp, user_key, email, role, plan, ip])
+    except Exception as e:
+        st.warning(f"⚠️ Logging error: {e}")
 
 # --- Проверка ключа ---
 def check_key_valid(user_key, email=""):
@@ -173,39 +177,28 @@ def check_key_valid(user_key, email=""):
     row = df[df["key"] == user_key]
 
     if row.empty:
-        return False, "user", "Unknown", T[lang]["auth_error"]
+        return False, "user", "Basic", T[lang]["auth_error"]
 
     expiry = row["expiry_date"].values[0]
     user_val = row["user"].values[0] if "user" in df.columns else ""
     plan = row["plan"].values[0] if "plan" in df.columns else "Basic"
 
-    # --- проверка окончания срока действия ---
     if not pd.isna(expiry) and expiry < pd.Timestamp(datetime.now()):
         return False, "user", plan, T[lang]["auth_expired"]
 
-    # --- авто-блокировка Trial ---
-    if plan == "Trial":
-        if not pd.isna(expiry):
-            if pd.Timestamp(datetime.now()) > expiry:
-                return False, "user", plan, T[lang]["auth_trial_expired"]
-        else:
-            return False, "user", plan, "⚠️ Trial must have expiry_date"
-
-    # --- проверка email ---
     if user_val:
         if email and email != user_val:
-            return False, "user", plan, f"⚠️ Этот ключ уже используется {user_val}"
+            return False, "user", plan, f"⚠️ This key is already used by {user_val}"
         else:
-            return True, "user", plan, T[lang]["auth_success"]
+            return True, "user", plan, T[lang]["auth_success"].format(plan=plan)
     else:
         if email:
             records = sheet.get_all_records()
             for idx, r in enumerate(records, start=2):
                 if r["key"] == user_key:
                     sheet.update_cell(idx, 3, email)
-                    st.info(f"🔗 Ключ {user_key} привязан к {email}")
                     break
-        return True, "user", plan, T[lang]["auth_success"]
+        return True, "user", plan, T[lang]["auth_success"].format(plan=plan)
 
 # --- Авторизация ---
 st.sidebar.title(T[lang]["auth_title"])
@@ -218,49 +211,40 @@ if not valid:
     st.error(message)
     st.stop()
 else:
-    st.success(message + f" (Plan: {plan})")
+    st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
 
-# --- Админка ---
+# --- Панель администратора ---
 if role == "admin":
     st.title(T[lang]["admin_title"])
-
-    st.subheader(T[lang]["current_keys"])
     keys_df = load_keys()
     st.dataframe(keys_df)
 
-    st.subheader(T[lang]["add_key"])
     new_key = st.text_input("Enter new key")
     expiry_date = st.date_input(T[lang]["expiry_optional"], value=None)
-    plan_choice = st.selectbox("Select plan", ["Basic", "Pro", "Trial"])
+    plan_type = st.selectbox("Plan", ["Basic", "Pro"])
     if st.button("Add Key"):
         if new_key.strip() == "":
             st.error("⚠️ Key cannot be empty")
         else:
-            add_key(new_key, str(expiry_date) if expiry_date else "", plan_choice)
+            add_key(new_key, str(expiry_date) if expiry_date else "", plan_type)
 
-    st.subheader(T[lang]["delete_key"])
     del_key = st.text_input(T[lang]["delete_prompt"])
     if st.button("Delete Key"):
         delete_key(del_key)
 
-    st.subheader(T[lang]["extend_key"])
     ext_key = st.text_input(T[lang]["extend_prompt"])
     new_expiry = st.date_input(T[lang]["extend_date"], value=datetime.now())
     if st.button("Extend Key"):
         extend_key(ext_key, new_expiry)
 
-    st.subheader(T[lang]["logs"])
     try:
         logs = client.open_by_key(SHEET_ID).worksheet("logs").get_all_records()
         logs_df = pd.DataFrame(logs)
-
         email_filter = st.text_input(T[lang]["filter_email"])
         if email_filter:
-            filtered_logs = logs_df[logs_df["email"].str.contains(email_filter, case=False, na=False)]
-            st.dataframe(filtered_logs)
-        else:
-            st.dataframe(logs_df)
+            logs_df = logs_df[logs_df["email"].str.contains(email_filter, case=False, na=False)]
+        st.dataframe(logs_df)
 
         output = BytesIO()
         logs_df.to_excel(output, index=False, engine="openpyxl")
@@ -276,6 +260,7 @@ if role == "admin":
 # --- Основное приложение ---
 if role in ["user", "admin"]:
     st.title(T[lang]["title"])
+
     uploaded_file = st.file_uploader(T[lang]["upload"], type=["csv"])
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
@@ -295,6 +280,7 @@ if role in ["user", "admin"]:
                 city_data = df[df["city"] == city]
                 ax.scatter(city_data["sqft"], city_data["price"], label=city)
 
+            ax.plot(df["sqft"], model.predict(X), color="red", linewidth=2, label="Prediction")
             ax.set_xlabel(T[lang]["xlabel"])
             ax.set_ylabel(T[lang]["ylabel"])
             ax.legend()
