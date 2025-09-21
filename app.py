@@ -257,39 +257,54 @@ def check_key_valid(user_key, email=""):
       * иначе — валиден; при первом использовании привязываем email к ключу
     Возвращает: (valid: bool, role: "admin"|"user", message: str)
     """
-    ADMIN_KEY = st.secrets.get("ADMIN_KEY") if "ADMIN_KEY" in st.secrets else None
-    if ADMIN_KEY and user_key == ADMIN_KEY:
-        return True, "admin", TXT["admin_success"]
+    if user_key == st.secrets["ADMIN_KEY"]:
+        return True, "admin", T[lang]["admin_success"]
 
     df = load_keys()
-    if df.empty:
-        return False, "user", TXT["auth_error"]
-
     row = df[df["key"] == user_key]
+
     if row.empty:
-        return False, "user", TXT["auth_error"]
+        return False, "user", T[lang]["auth_error"]
 
     expiry = row["expiry_date"].values[0]
-    user_val = row["user"].values[0] if "user" in row.columns else ""
+    user_val = row["user"].values[0] if "user" in df.columns else ""
 
-    # проверяем срок действия
-    if pd.notna(expiry) and expiry < pd.Timestamp(datetime.now()):
-        return False, "user", TXT["auth_expired"]
+    if not pd.isna(expiry) and expiry < pd.Timestamp(datetime.now()):
+        return False, "user", T[lang]["auth_expired"]
 
-    # если ключ уже привязан к другому email — блокируем
-    if user_val and email and (email.lower() != str(user_val).lower()):
-        return False, "user", f"⚠️ This key is already used by {user_val}"
-
-    # если ключ свободен и мы получили email — привязываем
-    if (not user_val) and email:
-        bind_user_to_key(user_key, email)
-
-    return True, "user", TXT["auth_success"]
+    if user_val:
+        if email and email != user_val:
+            return False, "user", f"⚠️ This key is already used by {user_val}"
+        else:
+            return True, "user", T[lang]["auth_success"]
+    else:
+        if email:
+            records = sheet.get_all_records()
+            for idx, r in enumerate(records, start=2):
+                if r["key"] == user_key:
+                    sheet.update_cell(idx, 3, email)
+                    # ⬇️ Раньше было st.success(...), теперь st.info(...)
+                    st.info(f"🔗 Key {user_key} linked to {email}")
+                    break
+        return True, "user", T[lang]["auth_success"]
 
 # ----------------- Интерфейс: авторизация -----------------
-st.sidebar.title(TXT["auth_title"])
-password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
-email = st.sidebar.text_input(TXT["email_prompt"])
+# --- Authorization ---
+st.sidebar.title(T[lang]["auth_title"])
+password = st.sidebar.text_input(T[lang]["auth_prompt"], type="password")
+email = st.sidebar.text_input(T[lang]["email_prompt"])
+
+valid, role, message = check_key_valid(password.strip(), email.strip())
+
+if not valid:
+    st.error(message)
+    st.stop()
+else:
+    # ✅ Основное подтверждение авторизации (только одно сообщение)
+    st.success(message)
+    # 📜 Запись в лог
+    log_access(password.strip(), email.strip(), role)
+
 
 # Проверяем ключ/аккаунт
 valid, role, message = check_key_valid(password.strip(), email.strip())
@@ -487,4 +502,5 @@ if role in ["user", "admin"]:
                 file_name="real_estate_predictions.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
 
