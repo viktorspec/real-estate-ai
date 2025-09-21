@@ -2,11 +2,17 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from xgboost import XGBRegressor
+from sklearn.metrics import r2_score, mean_absolute_error
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from io import BytesIO
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
-import requests  # для получения IP
+import requests
 
 st.set_page_config(page_title="🏡 AI Real Estate Predictor", layout="centered")
 
@@ -22,15 +28,11 @@ T = {
         "auth_success": "✅ Access granted",
         "admin_success": "✅ Admin access granted",
         "title": "🏡 AI Real Estate Price Predictor",
-        "upload": "Upload CSV (columns: city, sqft, price)",
+        "upload": "Upload CSV (columns: city, sqft, rooms, bathrooms, price)",
         "data_preview": "### Data preview",
-        "plot": "### Price vs. Square Footage",
-        "xlabel": "Square Footage (sqft)",
-        "ylabel": "Price (€)",
-        "prediction_input": "Enter square footage:",
-        "prediction_result": "Predicted price: {price:,} €",
+        "plot": "📈 Actual vs Predicted Prices",
         "download": "📥 Download predictions as Excel",
-        "csv_error": "CSV must contain columns: city, sqft, price",
+        "csv_error": "CSV must contain: city, sqft, rooms, bathrooms, price",
         "admin_title": "👑 Admin: Manage Users",
         "current_keys": "📋 Current Keys",
         "add_key": "➕ Add New Key",
@@ -53,15 +55,11 @@ T = {
         "auth_success": "✅ Доступ разрешён",
         "admin_success": "✅ Доступ администратора",
         "title": "🏡 AI-Прогноз цен недвижимости",
-        "upload": "Загрузите CSV (колонки: city, sqft, price)",
+        "upload": "Загрузите CSV (колонки: city, sqft, rooms, bathrooms, price)",
         "data_preview": "### Предпросмотр данных",
-        "plot": "### Зависимость цены от площади",
-        "xlabel": "Площадь (кв. футы)",
-        "ylabel": "Цена (€)",
-        "prediction_input": "Введите площадь:",
-        "prediction_result": "Прогноз цены: {price:,} €",
+        "plot": "📈 Фактическая vs прогнозируемая цена",
         "download": "📥 Скачать прогнозы в Excel",
-        "csv_error": "CSV должен содержать колонки: city, sqft, price",
+        "csv_error": "CSV должен содержать: city, sqft, rooms, bathrooms, price",
         "admin_title": "👑 Админ: Управление пользователями",
         "current_keys": "📋 Текущие ключи",
         "add_key": "➕ Добавить ключ",
@@ -128,7 +126,7 @@ def extend_key(ext_key, new_expiry):
             return
     st.error("⚠️ Key not found")
 
-# --- Logging system with auto-clean ---
+# --- Logging ---
 def log_access(user_key, email, role):
     try:
         log_sheet = client.open_by_key(SHEET_ID).worksheet("logs")
@@ -138,31 +136,11 @@ def log_access(user_key, email, role):
         log_sheet = sh.worksheet("logs")
         log_sheet.append_row(["timestamp", "key", "email", "role", "ip"])
 
-    # --- Очистка старых записей (30 дней) ---
-    logs = log_sheet.get_all_records()
-    cutoff = pd.Timestamp(datetime.now()) - pd.Timedelta(days=30)
-    rows_to_keep = [0]
-    for idx, row in enumerate(logs, start=2):
-        try:
-            ts = pd.to_datetime(row["timestamp"])
-            if ts >= cutoff:
-                rows_to_keep.append(idx)
-        except:
-            rows_to_keep.append(idx)
-
-    if len(rows_to_keep) < len(logs):
-        all_values = log_sheet.get_all_values()
-        header = all_values[0]
-        new_data = [header] + [all_values[i-1] for i in rows_to_keep[1:]]
-        log_sheet.clear()
-        log_sheet.update(new_data)
-
-    # --- Запись новой строки ---
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ip = get_user_ip()
     log_sheet.append_row([timestamp, user_key, email, role, ip])
 
-# --- Check key validity + bind user ---
+# --- Key validation ---
 def check_key_valid(user_key, email=""):
     if user_key == st.secrets["ADMIN_KEY"]:
         return True, "admin", T[lang]["admin_success"]
@@ -174,25 +152,10 @@ def check_key_valid(user_key, email=""):
         return False, "user", T[lang]["auth_error"]
 
     expiry = row["expiry_date"].values[0]
-    user_val = row["user"].values[0] if "user" in df.columns else ""
-
     if not pd.isna(expiry) and expiry < pd.Timestamp(datetime.now()):
         return False, "user", T[lang]["auth_expired"]
 
-    if user_val:
-        if email and email != user_val:
-            return False, "user", f"⚠️ This key is already used by {user_val}"
-        else:
-            return True, "user", T[lang]["auth_success"]
-    else:
-        if email:
-            records = sheet.get_all_records()
-            for idx, r in enumerate(records, start=2):
-                if r["key"] == user_key:
-                    sheet.update_cell(idx, 3, email)
-                    st.success(f"✅ Key {user_key} linked to {email}")
-                    break
-        return True, "user", T[lang]["auth_success"]
+    return True, "user", T[lang]["auth_success"]
 
 # --- Authorization ---
 st.sidebar.title(T[lang]["auth_title"])
@@ -208,94 +171,91 @@ else:
     st.success(message)
     log_access(password, email, role)
 
-# --- Admin Panel (ONLY ADMIN) ---
+# --- Admin Panel ---
 if role == "admin":
     st.title(T[lang]["admin_title"])
+    st.dataframe(load_keys())
 
-    st.subheader(T[lang]["current_keys"])
-    keys_df = load_keys()
-    st.dataframe(keys_df)
-
-    st.subheader(T[lang]["add_key"])
-    new_key = st.text_input("Enter new key")
-    expiry_date = st.date_input(T[lang]["expiry_optional"], value=None)
-    if st.button("Add Key"):
-        if new_key.strip() == "":
-            st.error("⚠️ Key cannot be empty")
-        else:
-            add_key(new_key, str(expiry_date) if expiry_date else "")
-
-    st.subheader(T[lang]["delete_key"])
-    del_key = st.text_input(T[lang]["delete_prompt"])
-    if st.button("Delete Key"):
-        delete_key(del_key)
-
-    st.subheader(T[lang]["extend_key"])
-    ext_key = st.text_input(T[lang]["extend_prompt"])
-    new_expiry = st.date_input(T[lang]["extend_date"], value=datetime.now())
-    if st.button("Extend Key"):
-        extend_key(ext_key, new_expiry)
-
-    st.subheader(T[lang]["logs"])
-    try:
-        logs = client.open_by_key(SHEET_ID).worksheet("logs").get_all_records()
-        logs_df = pd.DataFrame(logs)
-
-        # --- Фильтр по email ---
-        email_filter = st.text_input(T[lang]["filter_email"])
-        if email_filter:
-            filtered_logs = logs_df[logs_df["email"].str.contains(email_filter, case=False, na=False)]
-            st.dataframe(filtered_logs)
-        else:
-            st.dataframe(logs_df)
-
-        output = BytesIO()
-        logs_df.to_excel(output, index=False, engine="openpyxl")
-        st.download_button(
-            label=T[lang]["download_logs"],
-            data=output.getvalue(),
-            file_name="login_logs.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except:
-        st.info("ℹ️ No logs yet.")
-
-# --- Main App (Users + Admin) ---
+# --- Main App ---
 if role in ["user", "admin"]:
     st.title(T[lang]["title"])
 
-    uploaded_file = st.file_uploader(T[lang]["upload"], type=["csv"])
+    uploaded_file = st.file_uploader(
+        T[lang]["upload"], type=["csv"]
+    )
+
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
-
         st.write(T[lang]["data_preview"])
         st.dataframe(df.head())
 
-        if {"city", "sqft", "price"}.issubset(df.columns):
-            X = df[["sqft"]]
+        required_cols = {"city", "sqft", "rooms", "bathrooms", "price"}
+        if not required_cols.issubset(df.columns):
+            st.error(T[lang]["csv_error"])
+        else:
+            # --- Basic vs Pro ---
+            if role == "admin":
+                model_choice = st.selectbox("Choose ML Model", ["Linear Regression", "RandomForest", "XGBoost"])
+            else:
+                if "pro" in password.lower() or "pro" in email.lower():
+                    model_choice = st.selectbox("Choose ML Model", ["Linear Regression", "RandomForest", "XGBoost"])
+                else:
+                    st.info("🔑 Your plan: **Basic** (Linear Regression only).")
+                    model_choice = "Linear Regression"
+
+            # --- Features ---
+            X = df[["city", "sqft", "rooms", "bathrooms"]]
             y = df["price"]
 
-            model = LinearRegression()
-            model.fit(X, y)
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ("city", OneHotEncoder(handle_unknown="ignore"), ["city"]),
+                    ("num", "passthrough", ["sqft", "rooms", "bathrooms"])
+                ]
+            )
 
+            if model_choice == "Linear Regression":
+                model = LinearRegression()
+            elif model_choice == "RandomForest":
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+            else:
+                model = XGBRegressor(n_estimators=100, random_state=42)
+
+            pipeline = Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
+            pipeline.fit(X, y)
+            preds = pipeline.predict(X)
+
+            # --- Metrics ---
+            r2 = r2_score(y, preds)
+            mae = mean_absolute_error(y, preds)
+            st.write(f"**R² Score:** {r2:.3f}")
+            st.write(f"**MAE:** {mae:.2f} €")
+
+            # --- Plot ---
             st.write(T[lang]["plot"])
             fig, ax = plt.subplots()
-            for city in df['city'].unique():
-                city_data = df[df['city'] == city]
-                ax.scatter(city_data["sqft"], city_data["price"], label=city)
-
-            ax.plot(X, model.predict(X), color="red", linewidth=2, label="Prediction")
-            ax.set_xlabel(T[lang]["xlabel"])
-            ax.set_ylabel(T[lang]["ylabel"])
+            ax.scatter(y, preds, alpha=0.7, label="Predictions")
+            ax.plot([y.min(), y.max()], [y.min(), y.max()], "r--", label="Perfect Fit")
+            ax.set_xlabel("Actual Price (€)")
+            ax.set_ylabel("Predicted Price (€)")
             ax.legend()
             st.pyplot(fig)
 
-            sqft_value = st.number_input(T[lang]["prediction_input"], min_value=200, max_value=5000, step=50)
-            if sqft_value:
-                price_pred = model.predict([[sqft_value]])[0]
-                st.success(T[lang]["prediction_result"].format(price=int(price_pred)))
+            # --- New prediction ---
+            st.subheader("🔮 Predict New Property")
+            city_input = st.text_input("City", "Madrid")
+            sqft_input = st.number_input("Square footage", min_value=20, max_value=500, value=70, step=5)
+            rooms_input = st.number_input("Rooms", min_value=1, max_value=10, value=2, step=1)
+            bathrooms_input = st.number_input("Bathrooms", min_value=1, max_value=5, value=1, step=1)
 
-            df["predicted_price"] = model.predict(df[["sqft"]]).astype(int)
+            if st.button("Predict Price"):
+                new_data = pd.DataFrame([[city_input, sqft_input, rooms_input, bathrooms_input]],
+                                        columns=["city", "sqft", "rooms", "bathrooms"])
+                price_pred = pipeline.predict(new_data)[0]
+                st.success(f"Predicted price: {int(price_pred):,} €")
+
+            # --- Export ---
+            df["predicted_price"] = preds.astype(int)
             output = BytesIO()
             df.to_excel(output, index=False, engine="openpyxl")
             st.download_button(
@@ -304,5 +264,5 @@ if role in ["user", "admin"]:
                 file_name="real_estate_predictions.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        else:
-            st.error(T[lang]["csv_error"])
+
+
