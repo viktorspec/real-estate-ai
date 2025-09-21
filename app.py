@@ -198,11 +198,9 @@ def bind_user_to_key(user_key, email):
                 sheet.update_cell(idx, 3, email)
             return
 
-def log_access(user_key, email, role):
+def log_access(user_key, email, role, plan="Basic"):
     """
-    Записывает лог в лист "logs": timestamp, key, email, role, ip
-    Если листа logs нет — создаёт его.
-    Также выполняет авто-очистку логов старше 30 дней.
+    Записывает лог в лист "logs": timestamp, key, email, role, plan, ip
     """
     if client is None:
         return
@@ -210,9 +208,15 @@ def log_access(user_key, email, role):
     try:
         log_sheet = sh.worksheet("logs")
     except gspread.exceptions.WorksheetNotFound:
-        sh.add_worksheet(title="logs", rows="1000", cols="5")
+        sh.add_worksheet(title="logs", rows="1000", cols="6")
         log_sheet = sh.worksheet("logs")
-        log_sheet.append_row(["timestamp", "key", "email", "role", "ip"])
+        log_sheet.append_row(["timestamp", "key", "email", "role", "plan", "ip"])
+
+    # добавляем запись
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ip = get_user_ip()
+    log_sheet.append_row([timestamp, user_key, email, role, plan, ip])
+
 
     # авто-очистка старых записей (30 дней)
     try:
@@ -296,7 +300,25 @@ if not valid:
 else:
     st.success(message)
     # логируем успешный вход (если настроен Google Sheets)
-    log_access(password.strip(), email.strip(), role)
+    valid, role, message = check_key_valid(password, email)
+
+if not valid:
+    st.error(message)
+    st.stop()
+else:
+    st.success(message)
+
+    # Определяем тариф
+    plan = "Basic"
+    if role == "admin":
+        plan = "Admin"
+    else:
+        if email and ("pro" in email.lower() or "pro" in password.lower()):
+            plan = "Pro"
+
+    # Записываем лог
+    log_access(password.strip(), email.strip(), role, plan)
+
 
 # ----------------- Admin Panel (видно только админу) -----------------
 if role == "admin":
@@ -465,3 +487,4 @@ if role in ["user", "admin"]:
                 file_name="real_estate_predictions.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
