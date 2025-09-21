@@ -1,9 +1,11 @@
-# app.py — AI Real Estate SaaS с авторизацией, тарифами и логами
+# app.py — AI Real Estate SaaS с тарифами Basic / Pro и выбором моделей
 
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
 from io import BytesIO
 from datetime import datetime, timedelta
 import gspread
@@ -12,7 +14,7 @@ import requests
 
 st.set_page_config(page_title="🏡 AI Real Estate SaaS", layout="centered")
 
-# --- Выбор языка ---
+# --- Language selector ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["English", "Русский"])
 
 T = {
@@ -80,7 +82,7 @@ T = {
     }
 }
 
-# --- Подключение к Google Sheets ---
+# --- Google Sheets API connection ---
 creds_dict = dict(st.secrets["GCP_CREDENTIALS"])
 creds = Credentials.from_service_account_info(
     creds_dict,
@@ -90,14 +92,14 @@ client = gspread.authorize(creds)
 SHEET_ID = st.secrets["SHEET_ID"]
 sheet = client.open_by_key(SHEET_ID).sheet1
 
-# --- Получение IP ---
+# --- Get user IP ---
 def get_user_ip():
     try:
         return requests.get("https://api.ipify.org").text
     except:
         return "unknown"
 
-# --- Загрузка ключей ---
+# --- Load keys ---
 def load_keys():
     records = sheet.get_all_records()
     df = pd.DataFrame(records)
@@ -105,12 +107,12 @@ def load_keys():
         df["expiry_date"] = pd.to_datetime(df["expiry_date"], errors="coerce")
     return df
 
-# --- Добавление ключа ---
+# --- Add key ---
 def add_key(new_key, expiry_date="", plan="Basic"):
     sheet.append_row([new_key, expiry_date, "", plan])
     st.success(f"✅ Key {new_key} added!")
 
-# --- Удаление ключа ---
+# --- Delete key ---
 def delete_key(del_key):
     records = sheet.get_all_records()
     for idx, row in enumerate(records, start=2):
@@ -120,7 +122,7 @@ def delete_key(del_key):
             return
     st.error("⚠️ Key not found")
 
-# --- Продление ключа ---
+# --- Extend key ---
 def extend_key(ext_key, new_expiry):
     records = sheet.get_all_records()
     for idx, row in enumerate(records, start=2):
@@ -130,7 +132,7 @@ def extend_key(ext_key, new_expiry):
             return
     st.error("⚠️ Key not found")
 
-# --- Логирование входов ---
+# --- Logging system ---
 def log_access(user_key, email, role, plan="Basic"):
     try:
         try:
@@ -168,7 +170,7 @@ def log_access(user_key, email, role, plan="Basic"):
     except Exception as e:
         st.warning(f"⚠️ Logging error: {e}")
 
-# --- Проверка ключа ---
+# --- Check key validity ---
 def check_key_valid(user_key, email=""):
     if user_key == st.secrets["ADMIN_KEY"]:
         return True, "admin", "Admin", T[lang]["admin_success"]
@@ -200,7 +202,7 @@ def check_key_valid(user_key, email=""):
                     break
         return True, "user", plan, T[lang]["auth_success"].format(plan=plan)
 
-# --- Авторизация ---
+# --- Authorization ---
 st.sidebar.title(T[lang]["auth_title"])
 password = st.sidebar.text_input(T[lang]["auth_prompt"], type="password")
 email = st.sidebar.text_input(T[lang]["email_prompt"])
@@ -214,7 +216,7 @@ else:
     st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
 
-# --- Панель администратора ---
+# --- Admin Panel ---
 if role == "admin":
     st.title(T[lang]["admin_title"])
     keys_df = load_keys()
@@ -257,7 +259,7 @@ if role == "admin":
     except:
         st.info("ℹ️ No logs yet.")
 
-# --- Основное приложение ---
+# --- Main App ---
 if role in ["user", "admin"]:
     st.title(T[lang]["title"])
 
@@ -271,9 +273,27 @@ if role in ["user", "admin"]:
             X = df[["sqft", "rooms", "bathrooms"]]
             y = df["price"]
 
-            model = LinearRegression()
-            model.fit(X, y)
+            # --- Basic Plan: only Linear Regression ---
+            if plan == "Basic":
+                st.info("🔑 Ваш тариф: Basic — только Linear Regression.")
+                model = LinearRegression()
+                model.fit(X, y)
 
+            # --- Pro Plan: multiple models ---
+            elif plan == "Pro":
+                st.success("🚀 Ваш тариф: Pro — выбор модели.")
+                model_choice = st.selectbox("Выберите модель:", ["Linear Regression", "Random Forest", "XGBoost"])
+
+                if model_choice == "Linear Regression":
+                    model = LinearRegression()
+                elif model_choice == "Random Forest":
+                    model = RandomForestRegressor(n_estimators=100, random_state=42)
+                elif model_choice == "XGBoost":
+                    model = xgb.XGBRegressor(n_estimators=100, random_state=42)
+
+                model.fit(X, y)
+
+            # --- Plot ---
             st.write(T[lang]["plot"])
             fig, ax = plt.subplots()
             for city in df["city"].unique():
@@ -286,11 +306,13 @@ if role in ["user", "admin"]:
             ax.legend()
             st.pyplot(fig)
 
+            # --- Prediction ---
             sqft_value = st.number_input(T[lang]["prediction_input"], min_value=200, max_value=5000, step=50)
             if sqft_value:
                 price_pred = model.predict([[sqft_value, 3, 2]])[0]
                 st.success(T[lang]["prediction_result"].format(price=int(price_pred)))
 
+            # --- Export to Excel ---
             df["predicted_price"] = model.predict(X).astype(int)
             output = BytesIO()
             df.to_excel(output, index=False, engine="openpyxl")
