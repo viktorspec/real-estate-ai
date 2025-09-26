@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
-import os
 
 # --- Try XGBoost ---
 try:
@@ -22,27 +21,19 @@ except ImportError:
 
 # --- Google Sheets setup ---
 def get_gcp_credentials():
-    return service_account.Credentials.from_service_account_info(
+    return Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
     )
-    secret_file = "/etc/secrets/service_account.json"  # Render
-    if os.path.exists(secret_file):
-        return Credentials.from_service_account_file(
-            secret_file,
-            scopes=["https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive"]
-        )
-    raise FileNotFoundError("❌ service_account.json не найден")
 
 
 creds = get_gcp_credentials()
 client = gspread.authorize(creds)
 
-SHEET_ID = os.environ.get("SHEET_ID")
+SHEET_ID = st.secrets["SHEET_ID"]
 sheet = client.open_by_key(SHEET_ID).sheet1
 
 
@@ -256,4 +247,3 @@ if role in ["user", "admin"]:
             st.download_button(TXT["download"], out.getvalue(),
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
