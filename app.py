@@ -29,25 +29,33 @@ def get_gcp_credentials():
         ]
     )
 
-
 creds = get_gcp_credentials()
 client = gspread.authorize(creds)
 
 SHEET_ID = st.secrets["SHEET_ID"]
-sheet = client.open_by_key(SHEET_ID).sheet1
 
+# --- Worksheets ---
+licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
+logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
 
-# --- Ensure headers exist ---
+# --- Ensure headers ---
 def ensure_headers():
     try:
-        values = sheet.get_all_values()
-        headers = ["key", "expiry", "email", "plan", "created_at", "status"]
-        if not values or values[0] != headers:
-            sheet.clear()
-            sheet.append_row(headers)
+        # Licenses
+        headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
+        values = licenses_sheet.get_all_values()
+        if not values or values[0] != headers_licenses:
+            licenses_sheet.clear()
+            licenses_sheet.append_row(headers_licenses)
+
+        # Logs
+        headers_logs = ["key", "email", "plan", "role", "created_at"]
+        values_logs = logs_sheet.get_all_values()
+        if not values_logs or values_logs[0] != headers_logs:
+            logs_sheet.clear()
+            logs_sheet.append_row(headers_logs)
     except Exception as e:
         st.warning(f"⚠️ Ошибка при проверке заголовков: {e}")
-
 
 ensure_headers()
 
@@ -92,7 +100,7 @@ TEXTS = {
 # --- License check ---
 def check_key_valid(key: str, email: str):
     try:
-        records = sheet.get_all_records()
+        records = licenses_sheet.get_all_records()
         for row in records:
             if row["key"] == key and row["email"].lower() == email.lower():
                 expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
@@ -108,16 +116,16 @@ def check_key_valid(key: str, email: str):
 def log_access(key: str, email: str, role: str, plan: str):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        sheet.append_row([key, "", email, plan, now, role])
+        logs_sheet.append_row([key, email, plan, role, now])
     except:
         pass
 
 
-# --- Auto-clean logs (keep only last 30 days) ---
+# --- Auto-clean logs ---
 def cleanup_logs():
     try:
-        records = sheet.get_all_records()
-        headers = ["key", "expiry", "email", "plan", "created_at", "status"]
+        records = logs_sheet.get_all_records()
+        headers = ["key", "email", "plan", "role", "created_at"]
         new_rows = [headers]
         for row in records:
             created_at = row.get("created_at")
@@ -128,12 +136,11 @@ def cleanup_logs():
                         new_rows.append(list(row.values()))
                 except:
                     new_rows.append(list(row.values()))
-        sheet.clear()
+        logs_sheet.clear()
         for row in new_rows:
-            sheet.append_row(row)
+            logs_sheet.append_row(row)
     except:
         pass
-
 
 cleanup_logs()
 
