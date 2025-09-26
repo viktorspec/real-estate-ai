@@ -22,13 +22,13 @@ except ImportError:
 
 # --- Google Sheets setup ---
 def get_gcp_credentials():
-    secret_file = "service_account.json"  # локально
-    if os.path.exists(secret_file):
-        return Credentials.from_service_account_file(
-            secret_file,
-            scopes=["https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive"]
-        )
+    return service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+    )
     secret_file = "/etc/secrets/service_account.json"  # Render
     if os.path.exists(secret_file):
         return Credentials.from_service_account_file(
@@ -256,3 +256,4 @@ if role in ["user", "admin"]:
             st.download_button(TXT["download"], out.getvalue(),
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
