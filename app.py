@@ -33,19 +33,22 @@ creds = get_gcp_credentials()
 client = gspread.authorize(creds)
 
 SHEET_ID = st.secrets["SHEET_ID"]
+
+# --- Worksheets ---
 licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
 logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
-
 
 # --- Ensure headers ---
 def ensure_headers():
     try:
+        # Licenses
         headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
         values = licenses_sheet.get_all_values()
         if not values or values[0] != headers_licenses:
             licenses_sheet.clear()
             licenses_sheet.append_row(headers_licenses)
 
+        # Logs
         headers_logs = ["key", "email", "plan", "role", "created_at"]
         values_logs = logs_sheet.get_all_values()
         if not values_logs or values_logs[0] != headers_logs:
@@ -74,6 +77,8 @@ TEXTS = {
         "download_png": "⬇️ Download Plot (PNG)",
         "prediction_input": "Enter square footage for prediction",
         "prediction_result": "Predicted price: {price} €",
+        "metrics_title": "Model Accuracy",
+        "metrics_text": "Average error: ~{mae:,.0f} € (~{percent:.1f}% of avg price)"
     },
     "RU": {
         "title": "🏠 ИИ для недвижимости",
@@ -90,6 +95,8 @@ TEXTS = {
         "download_png": "⬇️ Скачать график (PNG)",
         "prediction_input": "Введите площадь для прогноза",
         "prediction_result": "Прогнозируемая цена: {price} €",
+        "metrics_title": "Точность модели",
+        "metrics_text": "Средняя ошибка: ~{mae:,.0f} € (~{percent:.1f}% от средней цены)"
     }
 }
 
@@ -102,11 +109,11 @@ def check_key_valid(key: str, email: str):
             if row["key"] == key and row["email"].lower() == email.lower():
                 expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
                 if expiry < datetime.now():
-                    return False, None, None, "❌ License expired", None
-                return True, row.get("status", "user"), row.get("plan", "Basic"), "✅ License valid", expiry
-        return False, None, None, "❌ Invalid key or email", None
+                    return False, None, None, "❌ License expired"
+                return True, row.get("status", "user"), row.get("plan", "Basic"), "✅ License valid"
+        return False, None, None, "❌ Invalid key or email"
     except Exception as e:
-        return False, None, None, f"⚠️ Error checking key: {e}", None
+        return False, None, None, f"⚠️ Error checking key: {e}"
 
 
 # --- Logging ---
@@ -150,14 +157,13 @@ st.sidebar.title(TXT["auth_title"])
 password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
 email = st.sidebar.text_input(TXT["email_prompt"])
 
-valid, role, plan, message, expiry = check_key_valid(password.strip(), email.strip())
+valid, role, plan, message = check_key_valid(password.strip(), email.strip())
 
 if not valid:
     st.error(message)
     st.stop()
 else:
     st.success(message)
-    st.sidebar.info(f"📅 Plan: **{plan}**\n\n⏳ Expiry: {expiry.strftime('%Y-%m-%d')}")
     log_access(password.strip(), email.strip(), role, plan)
 
 
@@ -197,15 +203,18 @@ if role in ["user", "admin"]:
                     if XGBOOST_AVAILABLE:
                         model = xgb.XGBRegressor(n_estimators=100, random_state=42)
                     else:
-                        st.warning("XGBoost not installed — fallback to RF.")
                         model = RandomForestRegressor(n_estimators=100, random_state=42)
                 with st.spinner("🔧 Training model..."):
                     model.fit(X, y)
 
             preds = model.predict(X)
-            r2 = r2_score(y, preds)
+
+            # --- Show metrics for client (clear, without R²) ---
             mae = mean_absolute_error(y, preds)
-            st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} €")
+            avg_price = y.mean()
+            percent_error = mae / avg_price * 100
+            st.subheader(TXT["metrics_title"])
+            st.write(TXT["metrics_text"].format(mae=mae, percent=percent_error))
 
             # --- Plot ---
             st.subheader(TXT["plot"])
