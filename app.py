@@ -1,4 +1,4 @@
-# app.py — Real Estate AI with License Control
+# app.py — Real Estate AI with License Control + Client-friendly explanations
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,7 +17,6 @@ try:
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
-
 
 # --- Google Sheets setup ---
 def get_gcp_credentials():
@@ -59,7 +58,6 @@ def ensure_headers():
 
 ensure_headers()
 
-
 # --- Language dictionaries ---
 TEXTS = {
     "EN": {
@@ -77,8 +75,6 @@ TEXTS = {
         "download_png": "⬇️ Download Plot (PNG)",
         "prediction_input": "Enter square footage for prediction",
         "prediction_result": "Predicted price: {price} €",
-        "metrics_title": "Model Accuracy",
-        "metrics_text": "Average error: ~{mae:,.0f} € (~{percent:.1f}% of avg price)"
     },
     "RU": {
         "title": "🏠 ИИ для недвижимости",
@@ -95,11 +91,8 @@ TEXTS = {
         "download_png": "⬇️ Скачать график (PNG)",
         "prediction_input": "Введите площадь для прогноза",
         "prediction_result": "Прогнозируемая цена: {price} €",
-        "metrics_title": "Точность модели",
-        "metrics_text": "Средняя ошибка: ~{mae:,.0f} € (~{percent:.1f}% от средней цены)"
     }
 }
-
 
 # --- License check ---
 def check_key_valid(key: str, email: str):
@@ -115,7 +108,6 @@ def check_key_valid(key: str, email: str):
     except Exception as e:
         return False, None, None, f"⚠️ Error checking key: {e}"
 
-
 # --- Logging ---
 def log_access(key: str, email: str, role: str, plan: str):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -123,7 +115,6 @@ def log_access(key: str, email: str, role: str, plan: str):
         logs_sheet.append_row([key, email, plan, role, now])
     except:
         pass
-
 
 # --- Auto-clean logs ---
 def cleanup_logs():
@@ -148,6 +139,8 @@ def cleanup_logs():
 
 cleanup_logs()
 
+# --- Debug mode (only for you, Витюша) ---
+DEBUG_EMAIL = "viktormatrix37@gmail.com"
 
 # --- UI ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["EN", "RU"])
@@ -165,7 +158,6 @@ if not valid:
 else:
     st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
-
 
 # --- Main App ---
 if role in ["user", "admin"]:
@@ -203,18 +195,36 @@ if role in ["user", "admin"]:
                     if XGBOOST_AVAILABLE:
                         model = xgb.XGBRegressor(n_estimators=100, random_state=42)
                     else:
+                        st.warning("XGBoost not installed — fallback to RF.")
                         model = RandomForestRegressor(n_estimators=100, random_state=42)
                 with st.spinner("🔧 Training model..."):
                     model.fit(X, y)
 
+            # --- Predictions ---
             preds = model.predict(X)
 
-            # --- Show metrics for client (clear, without R²) ---
+            # --- Metrics & client-friendly explanations ---
+            r2 = r2_score(y, preds)
             mae = mean_absolute_error(y, preds)
             avg_price = y.mean()
-            percent_error = mae / avg_price * 100
-            st.subheader(TXT["metrics_title"])
-            st.write(TXT["metrics_text"].format(mae=mae, percent=percent_error))
+            mae_percent = (mae / avg_price) * 100
+            avg_rent = 500  # € per month (example)
+            rent_months = mae / avg_rent
+
+            if email.strip().lower() == DEBUG_EMAIL.lower():
+                # Tech mode for you
+                st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% от средней цены)")
+                st.caption("ℹ️ R² показывает, насколько хорошо модель объясняет данные (1.0 = идеально). "
+                           "MAE показывает, насколько в среднем прогноз отличается от реальной цены.")
+                st.caption(f"📊 Ошибка равна примерно {rent_months:.1f} месяцам аренды при средней ставке {avg_rent} €/мес.")
+            else:
+                # Client-friendly view
+                if mae_percent < 2:
+                    st.success("📌 Прогноз очень точный: средняя ошибка меньше 2% от рыночной стоимости.")
+                elif mae_percent < 5:
+                    st.info("📌 Прогноз надёжный: ошибка в пределах 5% от рыночной стоимости.")
+                else:
+                    st.warning("📌 Ошибка прогноза выше 5%. Рекомендуем добавить больше данных для повышения точности.")
 
             # --- Plot ---
             st.subheader(TXT["plot"])
