@@ -313,5 +313,12 @@ st.subheader("❓ FAQ")
 for question, answer in FAQS[lang]:
     with st.expander(question):
         st.write(answer)
+        
+st.markdown("---")
+if lang == "EN":
+    st.info("📧 Need help? Contact support: viktormatrix37@gmail.com")
+else:
+    st.info("📧 Нужна помощь? Свяжитесь с поддержкой: viktormatrix37@gmail.com")
+
 
 
