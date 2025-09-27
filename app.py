@@ -33,22 +33,19 @@ creds = get_gcp_credentials()
 client = gspread.authorize(creds)
 
 SHEET_ID = st.secrets["SHEET_ID"]
-
-# --- Worksheets ---
 licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
 logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
+
 
 # --- Ensure headers ---
 def ensure_headers():
     try:
-        # Licenses
         headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
         values = licenses_sheet.get_all_values()
         if not values or values[0] != headers_licenses:
             licenses_sheet.clear()
             licenses_sheet.append_row(headers_licenses)
 
-        # Logs
         headers_logs = ["key", "email", "plan", "role", "created_at"]
         values_logs = logs_sheet.get_all_values()
         if not values_logs or values_logs[0] != headers_logs:
@@ -105,11 +102,11 @@ def check_key_valid(key: str, email: str):
             if row["key"] == key and row["email"].lower() == email.lower():
                 expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
                 if expiry < datetime.now():
-                    return False, None, None, "❌ License expired"
-                return True, row.get("status", "user"), row.get("plan", "Basic"), "✅ License valid"
-        return False, None, None, "❌ Invalid key or email"
+                    return False, None, None, "❌ License expired", None
+                return True, row.get("status", "user"), row.get("plan", "Basic"), "✅ License valid", expiry
+        return False, None, None, "❌ Invalid key or email", None
     except Exception as e:
-        return False, None, None, f"⚠️ Error checking key: {e}"
+        return False, None, None, f"⚠️ Error checking key: {e}", None
 
 
 # --- Logging ---
@@ -153,13 +150,14 @@ st.sidebar.title(TXT["auth_title"])
 password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
 email = st.sidebar.text_input(TXT["email_prompt"])
 
-valid, role, plan, message = check_key_valid(password.strip(), email.strip())
+valid, role, plan, message, expiry = check_key_valid(password.strip(), email.strip())
 
 if not valid:
     st.error(message)
     st.stop()
 else:
     st.success(message)
+    st.sidebar.info(f"📅 Plan: **{plan}**\n\n⏳ Expiry: {expiry.strftime('%Y-%m-%d')}")
     log_access(password.strip(), email.strip(), role, plan)
 
 
