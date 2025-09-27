@@ -106,7 +106,7 @@ def check_key_valid(key: str, email: str):
                 expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
                 if expiry < datetime.now():
                     return False, None, None, None, "❌ License expired"
-                return True, row.get("status", "user"), row.get("plan", "Basic"), row["expiry"], "✅ License valid"
+                return True, row.get("status", "user"), row.get("plan", "Basic"), row.get("expiry"), "✅ License valid"
         return False, None, None, None, "❌ Invalid key or email"
     except Exception as e:
         return False, None, None, None, f"⚠️ Error checking key: {e}"
@@ -161,8 +161,17 @@ if not valid:
 else:
     st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
-    st.sidebar.markdown(f"📌 **Your plan:** {plan}")
-    st.sidebar.markdown(f"⏳ **Valid until:** {expiry}")
+
+    # --- Красивый блок тарифа ---
+    st.sidebar.markdown(
+        f"""
+        <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
+            <h4 style='margin:0;'>📌 Plan: {plan}</h4>
+            <p style='margin:0;'>⏳ Valid until: {expiry}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # --- Main App ---
@@ -206,20 +215,17 @@ if role in ["user", "admin"]:
                 with st.spinner("🔧 Training model..."):
                     model.fit(X, y)
 
-            preds = model.predict(X)
-
             # --- Метрики ---
+            preds = model.predict(X)
             r2 = r2_score(y, preds)
             mae = mean_absolute_error(y, preds)
             avg_price = y.mean()
             mae_percent = (mae / avg_price) * 100
 
             st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% от средней цены)")
-
             st.caption("ℹ️ R² показывает, насколько хорошо модель объясняет данные (1.0 = идеально). "
                        "MAE показывает, насколько в среднем прогноз отличается от реальной цены.")
-
-            avg_rent = 500  # € за месяц аренды
+            avg_rent = 500
             rent_months = mae / avg_rent
             st.caption(f"📊 Это примерно {rent_months:.1f} месяцев аренды при средней ставке {avg_rent} €/мес.")
 
