@@ -1,4 +1,4 @@
-# app.py — Real Estate AI with License Control
+# app.py — Real Estate AI with License Control (optimized with cache + session_state)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,7 +18,6 @@ try:
 except ImportError:
     XGBOOST_AVAILABLE = False
 
-
 # --- Google Sheets setup ---
 def get_gcp_credentials():
     return Credentials.from_service_account_info(
@@ -33,32 +32,25 @@ creds = get_gcp_credentials()
 client = gspread.authorize(creds)
 
 SHEET_ID = st.secrets["SHEET_ID"]
-
-# --- Worksheets ---
 licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
 logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
 
 # --- Ensure headers ---
 def ensure_headers():
     try:
-        # Licenses
         headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
-        values = licenses_sheet.get_all_values()
-        if not values or values[0] != headers_licenses:
+        if not licenses_sheet.get_all_values() or licenses_sheet.get_all_values()[0] != headers_licenses:
             licenses_sheet.clear()
             licenses_sheet.append_row(headers_licenses)
 
-        # Logs
         headers_logs = ["key", "email", "plan", "role", "created_at"]
-        values_logs = logs_sheet.get_all_values()
-        if not values_logs or values_logs[0] != headers_logs:
+        if not logs_sheet.get_all_values() or logs_sheet.get_all_values()[0] != headers_logs:
             logs_sheet.clear()
             logs_sheet.append_row(headers_logs)
     except Exception as e:
         st.warning(f"⚠️ Ошибка при проверке заголовков: {e}")
 
 ensure_headers()
-
 
 # --- Language dictionaries ---
 TEXTS = {
@@ -96,7 +88,6 @@ TEXTS = {
     }
 }
 
-
 # --- License check ---
 def check_key_valid(key: str, email: str):
     try:
@@ -107,10 +98,9 @@ def check_key_valid(key: str, email: str):
                 if expiry < datetime.now():
                     return False, None, None, None, "❌ License expired"
                 return True, row.get("status", "user"), row.get("plan", "Basic"), row.get("expiry"), "✅ License valid"
-        return False, None, None, None, "❌ Invalid key or email"
+        return False, None, None, None, ""
     except Exception as e:
         return False, None, None, None, f"⚠️ Error checking key: {e}"
-
 
 # --- Logging ---
 def log_access(key: str, email: str, role: str, plan: str):
@@ -119,7 +109,6 @@ def log_access(key: str, email: str, role: str, plan: str):
         logs_sheet.append_row([key, email, plan, role, now])
     except:
         pass
-
 
 # --- Auto-clean logs ---
 def cleanup_logs():
@@ -144,6 +133,31 @@ def cleanup_logs():
 
 cleanup_logs()
 
+# --- Cache загрузки CSV ---
+@st.cache_data
+def load_csv(file):
+    return pd.read_csv(file)
+
+# --- Cache обучения модели ---
+@st.cache_data
+def train_model(X, y, model_type="linear"):
+    if model_type == "linear":
+        model = LinearRegression()
+    elif model_type == "rf":
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+    else:
+        model = xgb.XGBRegressor(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    preds = model.predict(X)
+    return model, preds
+
+# --- Session state ---
+if "df" not in st.session_state:
+    st.session_state.df = None
+if "model" not in st.session_state:
+    st.session_state.model = None
+if "preds" not in st.session_state:
+    st.session_state.preds = None
 
 # --- UI ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["EN", "RU"])
@@ -153,17 +167,15 @@ st.sidebar.title(TXT["auth_title"])
 password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
 email = st.sidebar.text_input(TXT["email_prompt"])
 
-if password.strip() and email.strip():  # проверяем, что оба поля введены
-    valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
+valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
 
+if password and email:
     if not valid:
         st.error(message)
         st.stop()
     else:
         st.success(message)
         log_access(password.strip(), email.strip(), role, plan)
-
-        # --- Красивый блок тарифа ---
         st.sidebar.markdown(
             f"""
             <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
@@ -174,10 +186,8 @@ if password.strip() and email.strip():  # проверяем, что оба по
             unsafe_allow_html=True
         )
 else:
-    st.info("ℹ️ Please enter license key and email to continue.")
+    st.info("👉 Please enter license key and email to continue")
     st.stop()
-
-
 
 # --- Main App ---
 if role in ["user", "admin"]:
@@ -185,7 +195,8 @@ if role in ["user", "admin"]:
 
     uploaded_file = st.file_uploader(TXT["upload"], type=["csv"])
     if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
+        df = load_csv(uploaded_file)
+        st.session_state.df = df
         st.subheader(TXT["data_preview"])
         st.dataframe(df.head())
 
@@ -196,32 +207,26 @@ if role in ["user", "admin"]:
             X = df[["sqft", "rooms", "bathrooms"]].astype(float)
             y = df["price"].astype(float)
 
-            model = None
-            if str(plan).lower() != "pro":
-                st.info("🔑 Basic plan — Linear Regression only.")
-                model = LinearRegression()
-                model.fit(X, y)
-            else:
+            model_type = "linear"
+            if str(plan).lower() == "pro":
                 st.success("🚀 Pro plan — choose model.")
                 options = ["Linear Regression", "Random Forest"]
                 if XGBOOST_AVAILABLE:
                     options.append("XGBoost")
                 model_choice = st.selectbox("Select model:", options)
                 if model_choice == "Linear Regression":
-                    model = LinearRegression()
+                    model_type = "linear"
                 elif model_choice == "Random Forest":
-                    model = RandomForestRegressor(n_estimators=100, random_state=42)
+                    model_type = "rf"
                 elif model_choice == "XGBoost":
-                    if XGBOOST_AVAILABLE:
-                        model = xgb.XGBRegressor(n_estimators=100, random_state=42)
-                    else:
-                        st.warning("XGBoost not installed — fallback to RF.")
-                        model = RandomForestRegressor(n_estimators=100, random_state=42)
-                with st.spinner("🔧 Training model..."):
-                    model.fit(X, y)
+                    model_type = "xgb"
+            else:
+                st.info("🔑 Basic plan — Linear Regression only.")
+
+            st.session_state.model, st.session_state.preds = train_model(X, y, model_type=model_type)
+            preds = st.session_state.preds
 
             # --- Метрики ---
-            preds = model.predict(X)
             r2 = r2_score(y, preds)
             mae = mean_absolute_error(y, preds)
             avg_price = y.mean()
@@ -254,13 +259,14 @@ if role in ["user", "admin"]:
                 "rooms": np.full_like(sqft_vals, 3),
                 "bathrooms": np.full_like(sqft_vals, 2)
             })
-            pred_line = model.predict(sqft_df)
+            pred_line = st.session_state.model.predict(sqft_df)
             ax.plot(sqft_vals, pred_line, color="red", linewidth=2, label="Prediction")
             ax.set_xlabel(TXT["xlabel"])
             ax.set_ylabel(TXT["ylabel"])
             ax.legend()
             st.pyplot(fig)
 
+            # --- Download Plot ---
             png_buffer = BytesIO()
             fig.savefig(png_buffer, format="png", bbox_inches="tight")
             png_buffer.seek(0)
@@ -275,7 +281,7 @@ if role in ["user", "admin"]:
             baths_input = st.number_input("Bathrooms", min_value=1, max_value=5, value=2, step=1)
             if st.button("Predict Price"):
                 new_X = np.array([[sqft_input, rooms_input, baths_input]])
-                pred_price = model.predict(new_X)[0]
+                pred_price = st.session_state.model.predict(new_X)[0]
                 st.success(TXT["prediction_result"].format(price=int(pred_price)))
 
             # --- Export Excel ---
@@ -286,4 +292,3 @@ if role in ["user", "admin"]:
             st.download_button(TXT["download"], out.getvalue(),
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
