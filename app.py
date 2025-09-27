@@ -292,3 +292,26 @@ if role in ["user", "admin"]:
             st.download_button(TXT["download"], out.getvalue(),
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# --- FAQ --- 
+FAQS = {
+    "EN": [
+        ("How to upload data?", "Upload a CSV file with columns: city, sqft, rooms, bathrooms, price."),
+        ("What does R² mean?", "R² shows how well the model explains the data. 1.0 = perfect."),
+        ("What is MAE?", "MAE = Mean Absolute Error. It shows the average difference between prediction and real price."),
+        ("Why do I need a license?", "License gives you access to Basic or Pro features."),
+    ],
+    "RU": [
+        ("Как загрузить данные?", "Загрузите CSV файл со столбцами: city, sqft, rooms, bathrooms, price."),
+        ("Что значит R²?", "R² показывает, насколько хорошо модель объясняет данные. 1.0 = идеально."),
+        ("Что такое MAE?", "MAE — это средняя абсолютная ошибка. Показывает, насколько в среднем прогноз отличается от реальной цены."),
+        ("Зачем нужен ключ лицензии?", "Ключ открывает доступ к возможностям Basic или Pro."),
+    ]
+}
+
+st.subheader("❓ FAQ")
+for question, answer in FAQS[lang]:
+    with st.expander(question):
+        st.write(answer)
+
+
