@@ -1,4 +1,4 @@
-# app.py — Real Estate AI with License Control + Client-friendly explanations
+# app.py — Real Estate AI with License Control
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,6 +17,7 @@ try:
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
+
 
 # --- Google Sheets setup ---
 def get_gcp_credentials():
@@ -58,6 +59,7 @@ def ensure_headers():
 
 ensure_headers()
 
+
 # --- Language dictionaries ---
 TEXTS = {
     "EN": {
@@ -94,6 +96,7 @@ TEXTS = {
     }
 }
 
+
 # --- License check ---
 def check_key_valid(key: str, email: str):
     try:
@@ -102,11 +105,12 @@ def check_key_valid(key: str, email: str):
             if row["key"] == key and row["email"].lower() == email.lower():
                 expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
                 if expiry < datetime.now():
-                    return False, None, None, "❌ License expired"
-                return True, row.get("status", "user"), row.get("plan", "Basic"), "✅ License valid"
-        return False, None, None, "❌ Invalid key or email"
+                    return False, None, None, None, "❌ License expired"
+                return True, row.get("status", "user"), row.get("plan", "Basic"), row["expiry"], "✅ License valid"
+        return False, None, None, None, "❌ Invalid key or email"
     except Exception as e:
-        return False, None, None, f"⚠️ Error checking key: {e}"
+        return False, None, None, None, f"⚠️ Error checking key: {e}"
+
 
 # --- Logging ---
 def log_access(key: str, email: str, role: str, plan: str):
@@ -115,6 +119,7 @@ def log_access(key: str, email: str, role: str, plan: str):
         logs_sheet.append_row([key, email, plan, role, now])
     except:
         pass
+
 
 # --- Auto-clean logs ---
 def cleanup_logs():
@@ -139,8 +144,6 @@ def cleanup_logs():
 
 cleanup_logs()
 
-# --- Debug mode (only for you, Витюша) ---
-DEBUG_EMAIL = "viktormatrix37@gmail.com"
 
 # --- UI ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["EN", "RU"])
@@ -150,7 +153,7 @@ st.sidebar.title(TXT["auth_title"])
 password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
 email = st.sidebar.text_input(TXT["email_prompt"])
 
-valid, role, plan, message = check_key_valid(password.strip(), email.strip())
+valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
 
 if not valid:
     st.error(message)
@@ -158,6 +161,9 @@ if not valid:
 else:
     st.success(message)
     log_access(password.strip(), email.strip(), role, plan)
+    st.sidebar.markdown(f"📌 **Your plan:** {plan}")
+    st.sidebar.markdown(f"⏳ **Valid until:** {expiry}")
+
 
 # --- Main App ---
 if role in ["user", "admin"]:
@@ -200,31 +206,29 @@ if role in ["user", "admin"]:
                 with st.spinner("🔧 Training model..."):
                     model.fit(X, y)
 
-            # --- Predictions ---
             preds = model.predict(X)
 
-            # --- Metrics & client-friendly explanations ---
+            # --- Метрики ---
             r2 = r2_score(y, preds)
             mae = mean_absolute_error(y, preds)
             avg_price = y.mean()
             mae_percent = (mae / avg_price) * 100
-            avg_rent = 500  # € per month (example)
-            rent_months = mae / avg_rent
 
-            if email.strip().lower() == DEBUG_EMAIL.lower():
-                # Tech mode for you
-                st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% от средней цены)")
-                st.caption("ℹ️ R² показывает, насколько хорошо модель объясняет данные (1.0 = идеально). "
-                           "MAE показывает, насколько в среднем прогноз отличается от реальной цены.")
-                st.caption(f"📊 Ошибка равна примерно {rent_months:.1f} месяцам аренды при средней ставке {avg_rent} €/мес.")
+            st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% от средней цены)")
+
+            st.caption("ℹ️ R² показывает, насколько хорошо модель объясняет данные (1.0 = идеально). "
+                       "MAE показывает, насколько в среднем прогноз отличается от реальной цены.")
+
+            avg_rent = 500  # € за месяц аренды
+            rent_months = mae / avg_rent
+            st.caption(f"📊 Это примерно {rent_months:.1f} месяцев аренды при средней ставке {avg_rent} €/мес.")
+
+            if mae_percent < 2:
+                st.success("📌 Прогноз очень точный: средняя ошибка меньше 2% от рыночной стоимости.")
+            elif mae_percent < 5:
+                st.info("📌 Прогноз надёжный: ошибка в пределах 5% от рыночной стоимости.")
             else:
-                # Client-friendly view
-                if mae_percent < 2:
-                    st.success("📌 Прогноз очень точный: средняя ошибка меньше 2% от рыночной стоимости.")
-                elif mae_percent < 5:
-                    st.info("📌 Прогноз надёжный: ошибка в пределах 5% от рыночной стоимости.")
-                else:
-                    st.warning("📌 Ошибка прогноза выше 5%. Рекомендуем добавить больше данных для повышения точности.")
+                st.warning("📌 Ошибка прогноза выше 5%. Рекомендуем добавить больше данных для повышения точности.")
 
             # --- Plot ---
             st.subheader(TXT["plot"])
