@@ -153,25 +153,30 @@ st.sidebar.title(TXT["auth_title"])
 password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
 email = st.sidebar.text_input(TXT["email_prompt"])
 
-valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
+if password.strip() and email.strip():  # проверяем, что оба поля введены
+    valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
 
-if not valid:
-    st.error(message)
-    st.stop()
+    if not valid:
+        st.error(message)
+        st.stop()
+    else:
+        st.success(message)
+        log_access(password.strip(), email.strip(), role, plan)
+
+        # --- Красивый блок тарифа ---
+        st.sidebar.markdown(
+            f"""
+            <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
+                <h4 style='margin:0;'>📌 Plan: {plan}</h4>
+                <p style='margin:0;'>⏳ Valid until: {expiry}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 else:
-    st.success(message)
-    log_access(password.strip(), email.strip(), role, plan)
+    st.info("ℹ️ Please enter license key and email to continue.")
+    st.stop()
 
-    # --- Красивый блок тарифа ---
-    st.sidebar.markdown(
-        f"""
-        <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
-            <h4 style='margin:0;'>📌 Plan: {plan}</h4>
-            <p style='margin:0;'>⏳ Valid until: {expiry}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
 # --- Main App ---
@@ -281,3 +286,4 @@ if role in ["user", "admin"]:
             st.download_button(TXT["download"], out.getvalue(),
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
