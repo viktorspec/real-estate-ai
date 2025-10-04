@@ -164,7 +164,12 @@ lang = st.sidebar.selectbox("🌐 Language / Язык", ["EN", "RU"])
 TXT = TEXTS[lang]
 
 st.sidebar.title(TXT["auth_title"])
-password = st.sidebar.text_input(TXT["auth_prompt"], type="password")
+password = query_params = st.experimental_get_query_params()
+if "email" in query_params:
+    email = query_params["email"][0]
+if "key" in query_params:
+    password = query_params["key"][0]
+
 email = st.sidebar.text_input(TXT["email_prompt"])
 
 valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
@@ -319,6 +324,7 @@ if lang == "EN":
     st.info("📧 Need help? Contact support: viktormatrix37@gmail.com")
 else:
     st.info("📧 Нужна помощь? Свяжитесь с поддержкой: viktormatrix37@gmail.com")
+
 
 
 
