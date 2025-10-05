@@ -1,4 +1,4 @@
-# app.py — Real Estate AI with License Control (v2 — stable, localized, "Remember me")
+# app.py — Real Estate AI (v3 with DEV_MODE)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,9 +7,16 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error
 from datetime import datetime, timedelta
-import gspread
-from google.oauth2.service_account import Credentials
 from io import BytesIO
+
+# --- DEV MODE (offline test mode) ---
+# 👉 Когда хочешь протестировать без Paddle и Google Sheets:
+# просто поставь DEV_MODE = True
+DEV_MODE = True  # ← включи/выключи офлайн режим
+
+if not DEV_MODE:
+    import gspread
+    from google.oauth2.service_account import Credentials
 
 # --- Try XGBoost ---
 try:
@@ -18,39 +25,38 @@ try:
 except ImportError:
     XGBOOST_AVAILABLE = False
 
-# --- Google Sheets setup ---
-def get_gcp_credentials():
-    return Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-    )
+# --- Connect Google Sheets ---
+if not DEV_MODE:
+    def get_gcp_credentials():
+        return Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+        )
 
-creds = get_gcp_credentials()
-client = gspread.authorize(creds)
+    creds = get_gcp_credentials()
+    client = gspread.authorize(creds)
+    SHEET_ID = st.secrets["SHEET_ID"]
+    licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
+    logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
 
-SHEET_ID = st.secrets["SHEET_ID"]
-licenses_sheet = client.open_by_key(SHEET_ID).worksheet("Licenses")
-logs_sheet = client.open_by_key(SHEET_ID).worksheet("Logs")
+    def ensure_headers():
+        try:
+            headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
+            if not licenses_sheet.get_all_values() or licenses_sheet.get_all_values()[0] != headers_licenses:
+                licenses_sheet.clear()
+                licenses_sheet.append_row(headers_licenses)
 
-# --- Ensure headers exist ---
-def ensure_headers():
-    try:
-        headers_licenses = ["key", "expiry", "email", "plan", "created_at", "status"]
-        if not licenses_sheet.get_all_values() or licenses_sheet.get_all_values()[0] != headers_licenses:
-            licenses_sheet.clear()
-            licenses_sheet.append_row(headers_licenses)
+            headers_logs = ["key", "email", "plan", "role", "created_at"]
+            if not logs_sheet.get_all_values() or logs_sheet.get_all_values()[0] != headers_logs:
+                logs_sheet.clear()
+                logs_sheet.append_row(headers_logs)
+        except Exception as e:
+            st.warning(f"⚠️ Ошибка при проверке заголовков: {e}")
 
-        headers_logs = ["key", "email", "plan", "role", "created_at"]
-        if not logs_sheet.get_all_values() or logs_sheet.get_all_values()[0] != headers_logs:
-            logs_sheet.clear()
-            logs_sheet.append_row(headers_logs)
-    except Exception as e:
-        st.warning(f"⚠️ Ошибка при проверке заголовков: {e}")
-
-ensure_headers()
+    ensure_headers()
 
 # --- Language packs ---
 TEXTS = {
@@ -94,20 +100,28 @@ TEXTS = {
 
 # --- License validation ---
 def check_key_valid(key: str, email: str):
-    try:
-        records = licenses_sheet.get_all_records()
-        for row in records:
-            if row["key"] == key and row["email"].lower() == email.lower():
-                expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
-                if expiry < datetime.now():
-                    return False, None, None, None, "❌ Срок действия лицензии истёк"
-                return True, row.get("status", "user"), row.get("plan", "Basic"), row.get("expiry"), "✅ Лицензия активна"
-        return False, None, None, None, "❌ Лицензия не найдена"
-    except Exception as e:
-        return False, None, None, None, f"⚠️ Ошибка проверки лицензии: {e}"
+    if DEV_MODE:
+        # 🔧 Тестовый режим: любой ключ "TEST" или email будет считаться валидным
+        if key.strip().lower() == "test" or email.endswith("@example.com"):
+            return True, "user", "Pro", "2099-12-31", "✅ Тестовая лицензия активна (DEV_MODE)"
+        else:
+            return True, "user", "Basic", "2099-12-31", "✅ Лицензия (оффлайн)"
+    else:
+        try:
+            records = licenses_sheet.get_all_records()
+            for row in records:
+                if row["key"] == key and row["email"].lower() == email.lower():
+                    expiry = datetime.strptime(row["expiry"], "%Y-%m-%d")
+                    if expiry < datetime.now():
+                        return False, None, None, None, "❌ Срок действия лицензии истёк"
+                    return True, row.get("status", "user"), row.get("plan", "Basic"), row.get("expiry"), "✅ Лицензия активна"
+            return False, None, None, None, "❌ Лицензия не найдена"
+        except Exception as e:
+            return False, None, None, None, f"⚠️ Ошибка проверки лицензии: {e}"
 
-# --- Log access ---
 def log_access(key: str, email: str, role: str, plan: str):
+    if DEV_MODE:
+        return
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logs_sheet.append_row([key, email, plan, role, now])
@@ -143,7 +157,6 @@ TXT = TEXTS[lang]
 
 st.sidebar.title(TXT["auth_title"])
 
-# Try load from URL params
 try:
     params = st.query_params
     if "email" in params:
@@ -184,7 +197,7 @@ else:
         unsafe_allow_html=True
     )
 
-# --- Main app ---
+# --- Основное приложение ---
 if role in ["user", "admin"]:
     st.title(TXT["title"])
 
@@ -215,11 +228,9 @@ if role in ["user", "admin"]:
 
         model, preds = train_model(X, y, model_type=model_type)
 
-        # --- Метрики ---
         r2 = r2_score(y, preds)
         mae = mean_absolute_error(y, preds)
-        avg_price = y.mean()
-        mae_percent = (mae / avg_price) * 100
+        mae_percent = (mae / y.mean()) * 100
 
         st.write(f"**R²:** {r2:.3f} | **MAE:** {mae:,.0f} € (~{mae_percent:.2f}%)")
         if mae_percent < 2:
@@ -227,7 +238,7 @@ if role in ["user", "admin"]:
         elif mae_percent < 5:
             st.info("📌 Прогноз надёжный (ошибка <5%).")
         else:
-            st.warning("📌 Ошибка прогноза выше 5%. Добавьте больше данных.")
+            st.warning("📌 Ошибка прогноза выше 5%.")
 
         # --- График ---
         st.subheader(TXT["plot"])
@@ -249,18 +260,18 @@ if role in ["user", "admin"]:
         ax.legend()
         st.pyplot(fig)
 
-        # --- Скачать ---
-        png_buf = BytesIO()
-        fig.savefig(png_buf, format="png", bbox_inches="tight")
-        png_buf.seek(0)
-        st.download_button(TXT["download_png"], png_buf, file_name="price_vs_sqft.png", mime="image/png")
+        # --- Скачать график ---
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        st.download_button(TXT["download_png"], buf.getvalue(), "plot.png", "image/png")
 
+        # --- Excel ---
         df["predicted_price"] = preds.astype(int)
         excel_buf = BytesIO()
         df.to_excel(excel_buf, index=False, engine="openpyxl")
         st.download_button(TXT["download"], excel_buf.getvalue(),
-                           file_name="predictions.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                           "predictions.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         # --- Прогноз ---
         st.subheader("🔮 Прогноз для нового объекта")
@@ -297,6 +308,8 @@ if lang == "RU":
     st.info("📧 Поддержка: viktormatrix37@gmail.com")
 else:
     st.info("📧 Support: viktormatrix37@gmail.com")
+
+
 
 
 
