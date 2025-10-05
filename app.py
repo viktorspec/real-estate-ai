@@ -1,4 +1,4 @@
-# app.py — Real Estate AI with License Control (optimized with cache + session_state)
+# app.py — Real Estate AI with License Control (optimized, safe, and updated)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -98,7 +98,7 @@ def check_key_valid(key: str, email: str):
                 if expiry < datetime.now():
                     return False, None, None, None, "❌ License expired"
                 return True, row.get("status", "user"), row.get("plan", "Basic"), row.get("expiry"), "✅ License valid"
-        return False, None, None, None, ""
+        return False, None, None, None, "❌ License not found"
     except Exception as e:
         return False, None, None, None, f"⚠️ Error checking key: {e}"
 
@@ -133,12 +133,11 @@ def cleanup_logs():
 
 cleanup_logs()
 
-# --- Cache загрузки CSV ---
+# --- Cache ---
 @st.cache_data
 def load_csv(file):
     return pd.read_csv(file)
 
-# --- Cache обучения модели ---
 @st.cache_data
 def train_model(X, y, model_type="linear"):
     if model_type == "linear":
@@ -162,38 +161,45 @@ if "preds" not in st.session_state:
 # --- UI ---
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["EN", "RU"])
 TXT = TEXTS[lang]
-
 st.sidebar.title(TXT["auth_title"])
-password = query_params = st.query_params
 
-if "email" in query_params:
-    email = query_params["email"][0]
-if "key" in query_params:
-    password = query_params["key"][0]
+# --- Secure query parameter handling ---
+try:
+    query_params = st.query_params
+    email = query_params.get("email", [""])[0]
+    password = query_params.get("key", [""])[0]
+except Exception:
+    email, password = "", ""
 
-email = st.sidebar.text_input(TXT["email_prompt"])
+email = (email or "").strip().lower()
+password = (password or "").strip()
 
-valid, role, plan, expiry, message = check_key_valid(password.strip(), email.strip())
+# --- User input ---
+email = st.sidebar.text_input(TXT["email_prompt"], value=email)
+password = st.sidebar.text_input(TXT["auth_prompt"], value=password, type="password")
 
-if password and email:
-    if not valid:
-        st.error(message)
-        st.stop()
-    else:
-        st.success(message)
-        log_access(password.strip(), email.strip(), role, plan)
-        st.sidebar.markdown(
-            f"""
-            <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
-                <h4 style='margin:0;'>📌 Plan: {plan}</h4>
-                <p style='margin:0;'>⏳ Valid until: {expiry}</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-else:
-    st.info("👉 Please enter license key and email to continue")
+# --- License validation ---
+if not email or not password:
+    st.info("👉 Please enter license key and email to continue.")
     st.stop()
+
+valid, role, plan, expiry, message = check_key_valid(password, email)
+
+if not valid:
+    st.error(message)
+    st.stop()
+else:
+    st.success(message)
+    log_access(password, email, role, plan)
+    st.sidebar.markdown(
+        f"""
+        <div style='padding:15px; border-radius:10px; background-color:#1E3A8A; color:white;'>
+            <h4 style='margin:0;'>📌 Plan: {plan}</h4>
+            <p style='margin:0;'>⏳ Valid until: {expiry}</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- Main App ---
 if role in ["user", "admin"]:
@@ -232,25 +238,17 @@ if role in ["user", "admin"]:
             st.session_state.model, st.session_state.preds = train_model(X, y, model_type=model_type)
             preds = st.session_state.preds
 
-            # --- Метрики ---
+            # --- Metrics ---
             r2 = r2_score(y, preds)
             mae = mean_absolute_error(y, preds)
             avg_price = y.mean()
             mae_percent = (mae / avg_price) * 100
 
-            st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% от средней цены)")
-            st.caption("ℹ️ R² показывает, насколько хорошо модель объясняет данные (1.0 = идеально). "
-                       "MAE показывает, насколько в среднем прогноз отличается от реальной цены.")
+            st.write(f"**R²:** {r2:.3f}    **MAE:** {mae:,.0f} € (~{mae_percent:.2f}% of avg price)")
+            st.caption("ℹ️ R² shows model accuracy (1.0 = perfect). MAE is average deviation from real price.")
             avg_rent = 500
             rent_months = mae / avg_rent
-            st.caption(f"📊 Это примерно {rent_months:.1f} месяцев аренды при средней ставке {avg_rent} €/мес.")
-
-            if mae_percent < 2:
-                st.success("📌 Прогноз очень точный: средняя ошибка меньше 2% от рыночной стоимости.")
-            elif mae_percent < 5:
-                st.info("📌 Прогноз надёжный: ошибка в пределах 5% от рыночной стоимости.")
-            else:
-                st.warning("📌 Ошибка прогноза выше 5%. Рекомендуем добавить больше данных для повышения точности.")
+            st.caption(f"📊 Equivalent to {rent_months:.1f} months rent at {avg_rent} €/month.")
 
             # --- Plot ---
             st.subheader(TXT["plot"])
@@ -272,25 +270,24 @@ if role in ["user", "admin"]:
             ax.legend()
             st.pyplot(fig)
 
-            # --- Download Plot ---
+            # --- Downloads ---
             png_buffer = BytesIO()
             fig.savefig(png_buffer, format="png", bbox_inches="tight")
             png_buffer.seek(0)
             st.download_button(TXT["download_png"], data=png_buffer.getvalue(),
                                file_name="price_vs_sqft.png", mime="image/png")
 
-            # --- Predict new ---
+            # --- Predictions ---
             st.subheader("🔮 Predict New Property")
             sqft_input = st.number_input(TXT["prediction_input"], min_value=1, max_value=10000,
                                          value=int(np.median(df["sqft"])), step=1)
-            rooms_input = st.number_input("Rooms", min_value=1, max_value=10, value=3, step=1)
-            baths_input = st.number_input("Bathrooms", min_value=1, max_value=5, value=2, step=1)
+            rooms_input = st.number_input("Rooms", 1, 10, 3)
+            baths_input = st.number_input("Bathrooms", 1, 5, 2)
             if st.button("Predict Price"):
                 new_X = np.array([[sqft_input, rooms_input, baths_input]])
                 pred_price = st.session_state.model.predict(new_X)[0]
                 st.success(TXT["prediction_result"].format(price=int(pred_price)))
 
-            # --- Export Excel ---
             df_export = df.copy()
             df_export["predicted_price"] = preds.astype(int)
             out = BytesIO()
@@ -299,32 +296,33 @@ if role in ["user", "admin"]:
                                file_name="predictions.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# --- FAQ --- 
+# --- FAQ ---
 FAQS = {
     "EN": [
         ("How to upload data?", "Upload a CSV file with columns: city, sqft, rooms, bathrooms, price."),
-        ("What does R² mean?", "R² shows how well the model explains the data. 1.0 = perfect."),
-        ("What is MAE?", "MAE = Mean Absolute Error. It shows the average difference between prediction and real price."),
-        ("Why do I need a license?", "License gives you access to Basic or Pro features."),
+        ("What does R² mean?", "R² shows how well the model explains the data."),
+        ("What is MAE?", "MAE = Mean Absolute Error — average difference between predicted and real price."),
+        ("Why do I need a license?", "License grants access to Basic or Pro features."),
     ],
     "RU": [
         ("Как загрузить данные?", "Загрузите CSV файл со столбцами: city, sqft, rooms, bathrooms, price."),
-        ("Что значит R²?", "R² показывает, насколько хорошо модель объясняет данные. 1.0 = идеально."),
-        ("Что такое MAE?", "MAE — это средняя абсолютная ошибка. Показывает, насколько в среднем прогноз отличается от реальной цены."),
-        ("Зачем нужен ключ лицензии?", "Ключ открывает доступ к возможностям Basic или Pro."),
+        ("Что значит R²?", "R² показывает, насколько хорошо модель объясняет данные."),
+        ("Что такое MAE?", "MAE — это средняя абсолютная ошибка, показывающая точность модели."),
+        ("Зачем нужен ключ лицензии?", "Ключ открывает доступ к функциям Basic или Pro."),
     ]
 }
 
 st.subheader("❓ FAQ")
-for question, answer in FAQS[lang]:
-    with st.expander(question):
-        st.write(answer)
-        
+for q, a in FAQS[lang]:
+    with st.expander(q):
+        st.write(a)
+
 st.markdown("---")
 if lang == "EN":
     st.info("📧 Need help? Contact support: viktormatrix37@gmail.com")
 else:
     st.info("📧 Нужна помощь? Свяжитесь с поддержкой: viktormatrix37@gmail.com")
+
 
 
 
