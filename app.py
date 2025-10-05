@@ -176,7 +176,11 @@ if st.sidebar.button(TXT["continue"]):
         st.session_state.key = password
 
 if not email or not password:
+   if lang == "EN":
+    st.info("👉 Please enter your email and license key to continue.")
+else:
     st.info("👉 Введите email и лицензионный ключ, чтобы продолжить.")
+
     st.stop()
 
 valid, role, plan, expiry, message = check_key_valid(password, email)
@@ -308,6 +312,7 @@ if lang == "RU":
     st.info("📧 Поддержка: viktormatrix37@gmail.com")
 else:
     st.info("📧 Support: viktormatrix37@gmail.com")
+
 
 
 
