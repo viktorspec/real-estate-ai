@@ -12,7 +12,7 @@ from io import BytesIO
 # --- DEV MODE (offline test mode) ---
 # 👉 Когда хочешь протестировать без Paddle и Google Sheets:
 # просто поставь DEV_MODE = True
-DEV_MODE = True  # ← включи/выключи офлайн режим True/False
+DEV_MODE = False  # ← включи/выключи офлайн режим True/False
 
 if not DEV_MODE:
     import gspread
@@ -312,6 +312,7 @@ if lang == "RU":
     st.info("📧 Поддержка: viktormatrix37@gmail.com")
 else:
     st.info("📧 Support: viktormatrix37@gmail.com")
+
 
 
 
