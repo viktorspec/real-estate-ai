@@ -219,7 +219,8 @@ st.sidebar.title(TXT["auth_title"])
 
 # Query params auto-fill (for Activate button link)
 try:
-    params = st.experimental_get_query_params()
+    params = st.query_params
+
     if "email" in params and params["email"]:
         st.session_state.email = params["email"][0]
     if "key" in params and params["key"]:
@@ -422,6 +423,7 @@ if lang == "RU":
     st.info("📧 Поддержка: viktormatrix37@gmail.com")
 else:
     st.info("📧 Support: viktormatrix37@gmail.com")
+
 
 
 
