@@ -1,12 +1,16 @@
+# requirements_app.txt
 streamlit
 pandas
+numpy
 matplotlib
 scikit-learn
 xgboost
+tensorflow
 openpyxl
 gspread
 google-auth
-requests
+
+
 
 
 
