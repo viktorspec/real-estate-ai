@@ -31,7 +31,7 @@ except Exception:
 
 # --- DEV MODE (offline test mode) ---
 # set to True to run without Google Sheets; "test" key or @example.com emails are accepted
-DEV_MODE = st.secrets.get("DEV_MODE", False) if "DEV_MODE" in st.secrets else False
+DEV_MODE = st.secrets.get("DEV_MODE", True) if "DEV_MODE" in st.secrets else False
 
 if not DEV_MODE:
     import gspread
@@ -423,6 +423,7 @@ if lang == "RU":
     st.info("📧 Поддержка: viktormatrix37@gmail.com")
 else:
     st.info("📧 Support: viktormatrix37@gmail.com")
+
 
 
 
