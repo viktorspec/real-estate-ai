@@ -12,6 +12,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error
 from datetime import datetime, timedelta
 from io import BytesIO
+import joblib
+import os
 
 # Optional XGBoost
 try:
@@ -172,8 +174,20 @@ def train_model(X, y, model_type="linear"):
             model = xgb.XGBRegressor(n_estimators=100, random_state=42)
         else:
             model = RandomForestRegressor(n_estimators=100, random_state=42)
+
     model.fit(X, y)
     preds = model.predict(X)
+
+    # --- Auto-save model ---
+    model_dir = "model"
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, "model.pkl")
+    try:
+        joblib.dump(model, model_path)
+        st.success(f"💾 Model saved to {model_path}")
+    except Exception as e:
+        st.warning(f"⚠️ Could not save model: {e}")
+
     return model, preds
 
 # --- ResNet loader (Premium) ---
