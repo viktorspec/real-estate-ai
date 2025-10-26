@@ -271,11 +271,11 @@ if plan.lower() == "premium" and rest:
 # --- FAQ (двуязычный) ---
 with st.expander("📖 FAQ"):
     if lang == "RU":
-        st.markdown ("""
+        faq_text = """
 ### ❓ Часто задаваемые вопросы (FAQ)
 
 **Как загрузить данные?**  
-Загрузите CSV с колонками:
+Загрузите CSV с колонками:  
 `GrLivArea, OverallQual, GarageCars, GarageArea, TotalBsmtSF, FullBath, YearBuilt, Price`
 
 **Пример CSV:**
