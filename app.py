@@ -165,56 +165,59 @@ def load_csv(file):
 
 @st.cache_data
 def train_model(X, y, model_type="linear"):
+    # Загружаем модель если она уже существует
+    pretrained = load_pretrained_model(model_type)
+    if pretrained is not None:
+        st.info(f"📦 Using pretrained {model_type} model (no retraining).")
+        preds = pretrained.predict(X)
+        return pretrained, preds
+
+    # Если нет — обучаем заново
     if model_type == "linear":
         model = LinearRegression()
     elif model_type == "rf":
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model = RandomForestRegressor(n_estimators=200, random_state=42)
     else:
         if XGBOOST_AVAILABLE:
-            model = xgb.XGBRegressor(n_estimators=100, random_state=42)
+            model = xgb.XGBRegressor(n_estimators=300, learning_rate=0.05, random_state=42)
         else:
             model = RandomForestRegressor(n_estimators=100, random_state=42)
 
     model.fit(X, y)
     preds = model.predict(X)
 
-    # --- Auto-save model ---
-    model_dir = "model"
-    os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, "model.pkl")
-    try:
-        joblib.dump(model, model_path)
-        st.success(f"💾 Model saved to {model_path}")
-    except Exception as e:
-        st.warning(f"⚠️ Could not save model: {e}")
-
+    save_model(model, model_type)
     return model, preds
 
-# --- ResNet loader (Premium) ---
-@st.cache_resource
-def load_resnet_model():
-    if not TF_AVAILABLE:
-        return None
-    base = ResNet50(weights="imagenet", include_top=False, pooling="avg")
-    return base
 
-def predict_value_from_image_bytes(file_buffer):
-    """Return estimated value (int) or None"""
-    if not TF_AVAILABLE:
+# --- ResNet loader (Premium) ---
+# --- Load/save models by type ---
+@st.cache_resource
+def load_pretrained_model(model_type):
+    """Загружает готовую модель (linear, rf, xgb) если она есть"""
+    model_path = os.path.join("model", f"{model_type}.pkl")
+    if os.path.exists(model_path):
+        try:
+            model = joblib.load(model_path)
+            st.success(f"✅ Loaded {model_type} model from {model_path}")
+            return model
+        except Exception as e:
+            st.warning(f"⚠️ Could not load {model_type} model: {e}")
+    else:
+        st.info(f"ℹ️ No saved {model_type} model found — training a new one.")
         return None
-    model = load_resnet_model()
+
+
+def save_model(model, model_type):
+    """Сохраняет модель под своим типом"""
+    os.makedirs("model", exist_ok=True)
+    model_path = os.path.join("model", f"{model_type}.pkl")
     try:
-        img = load_img(file_buffer, target_size=(224,224))
-        x = img_to_array(img)
-        x = np.expand_dims(x, axis=0)
-        x = preprocess_input(x)
-        features = model.predict(x)  # (1, feat_dim)
-        val = float(np.mean(features)) * 1000.0  # simple heuristic
-        val = int(max(50000, min(val, 2_000_000)))
-        return val
+        joblib.dump(model, model_path)
+        st.success(f"💾 Saved {model_type} model to {model_path}")
     except Exception as e:
-        st.error(f"Image analysis error: {e}")
-        return None
+        st.warning(f"⚠️ Could not save {model_type} model: {e}")
+
 
 # --- Session defaults ---
 if "email" not in st.session_state:
