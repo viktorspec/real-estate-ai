@@ -279,3 +279,57 @@ with st.expander("📖 FAQ"):
 `GrLivArea, OverallQual, GarageCars, GarageArea, TotalBsmtSF, FullBath, YearBuilt, Price`
 
 **Пример CSV:**
+
+
+**Описание признаков:**
+- `GrLivArea` — жилая площадь  
+- `OverallQual` — качество дома  
+- `GarageCars` — машиномест в гараже  
+- `GarageArea` — площадь гаража  
+- `TotalBsmtSF` — площадь подвала  
+- `FullBath` — число полных ванных  
+- `YearBuilt` — год постройки  
+- `Price` — цена  
+
+**Почему обучение отключено?**  
+Это продакшн-версия — используется только прогноз заранее обученными моделями:
+`linear.pkl`, `rf.pkl`, `xgb.pkl`
+
+**Как скачать результаты?**  
+После прогноза появится кнопка 💾 «Скачать прогнозы (CSV)».
+
+**Как работает фотооценка (Premium)?**  
+ResNet50 анализирует фото дома и оценивает стоимость с погрешностью ±5%.
+"""
+    else:
+        faq_text = """
+### ❓ Frequently Asked Questions (FAQ)
+
+**How to upload data?**  
+Upload CSV with columns:  
+`GrLivArea, OverallQual, GarageCars, GarageArea, TotalBsmtSF, FullBath, YearBuilt, Price`
+
+**Example CSV:**
+
+
+**Feature description:**
+- `GrLivArea` — total living area  
+- `OverallQual` — overall quality  
+- `GarageCars` — garage capacity  
+- `GarageArea` — garage size  
+- `TotalBsmtSF` — basement size  
+- `FullBath` — full bathrooms  
+- `YearBuilt` — year built  
+- `Price` — target (house price)
+
+**Why training is disabled?**  
+This is production mode — only pretrained models are used:
+`linear.pkl`, `rf.pkl`, `xgb.pkl`
+
+**How to download results?**  
+After prediction, click 💾 “Download predictions (CSV)”.
+
+**How does photo valuation work (Premium)?**  
+ResNet50 analyses the photo and estimates the price (±5% accuracy).
+"""
+    st.markdown(faq_text)
