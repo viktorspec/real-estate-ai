@@ -279,4 +279,3 @@ with st.expander("📖 FAQ"):
 `GrLivArea, OverallQual, GarageCars, GarageArea, TotalBsmtSF, FullBath, YearBuilt, Price`
 
 **Пример CSV:**
-        
