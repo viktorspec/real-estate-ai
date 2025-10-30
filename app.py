@@ -148,15 +148,26 @@ def load_resnet_model():
 def predict_value_from_image_bytes(file_buffer):
     if not TF_AVAILABLE:
         return None
-    model = load_resnet_model()
     try:
-        img = load_img(file_buffer, target_size=(224,224))
+        # Загружаем ResNet50 для извлечения признаков
+        resnet = load_resnet_model()
+        # Загружаем обученную модель Виктора
+        model_path = os.path.join("model", "photo_regressor.pkl")
+        regressor = joblib.load(model_path)
+
+        # Обработка изображения
+        img = load_img(file_buffer, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
-        features = model.predict(x)
-        val = float(np.mean(features)) * 1000.0
-        val = int(max(50000, min(val, 2_000_000)))
+
+        # Извлечение признаков
+        features = resnet.predict(x, verbose=0)
+        feat_flat = features.flatten().reshape(1, -1)
+
+        # Прогноз
+        val = regressor.predict(feat_flat)[0]
+        val = int(max(50000, min(val, 2_000_000)))  # Ограничим диапазон
         return val
     except Exception as e:
         st.error(f"Ошибка анализа фото: {e}")
