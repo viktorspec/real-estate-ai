@@ -151,18 +151,25 @@ def predict_value_from_image_bytes(file_buffer, country=None):
     try:
         # загрузка ResNet и regressor (кэшируем)
         resnet = load_resnet_model()
-        model_path = os.path.join("model", "photo_regressor.pkl")
-        meta_path = os.path.join("model", "photo_meta.pkl")
-        if not os.path.exists(model_path):
-            st.error("Модель фото-оценки не найдена.")
+        
+        # Ищем модель среди возможных названий
+        possible_models = ["photo_meta.pkl", "photo_regressor.pkl"]
+        model_path = next(
+            (os.path.join("model", f) for f in possible_models if os.path.exists(os.path.join("model", f))),
+            None
+        )
+
+        if not model_path:
+            st.error("❌ Модель фото-оценки не найдена. Проверь папку 'model'.")
             return None
 
-        m = joblib.load(model_path)  # m: {"reg":..., "encoder":...} или reg если другой формат
+        # Загружаем модель
+        m = joblib.load(model_path)
         reg = m.get("reg") if isinstance(m, dict) else m
         enc = m.get("encoder") if isinstance(m, dict) else None
 
         # обработка изображения
-        img = load_img(file_buffer, target_size=(224,224))
+        img = load_img(file_buffer, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
@@ -173,13 +180,13 @@ def predict_value_from_image_bytes(file_buffer, country=None):
             country_vec = enc.transform([[country]])
             X_in = np.concatenate([feat, country_vec], axis=1)
         else:
-            # если encoder нет, просто прогнозим по визуалу
             X_in = feat
 
         y_log_pred = reg.predict(X_in)[0]
         y_pred = float(np.expm1(y_log_pred))
 
         # клипинг по мета
+        meta_path = os.path.join("model", "photo_meta.pkl")
         meta = joblib.load(meta_path) if os.path.exists(meta_path) else {}
         p05 = meta.get("p05", None)
         p95 = meta.get("p95", None)
@@ -190,6 +197,7 @@ def predict_value_from_image_bytes(file_buffer, country=None):
     except Exception as e:
         st.error(f"Ошибка анализа фото: {e}")
         return None
+
 
 # --- Интерфейс Streamlit ---
 st.set_page_config(page_title="Real Estate AI", layout="wide")
