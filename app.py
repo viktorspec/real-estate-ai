@@ -139,21 +139,40 @@ def load_pretrained_model(model_type):
             st.error(f"⚠️ Ошибка загрузки модели {model_type}: {e}")
     return None
 
+
+# === ЗАГРУЗКА RESNET МОДЕЛИ ===
 @st.cache_resource
 def load_resnet_model():
-    if not TF_AVAILABLE:
-        return None
-    return ResNet50(weights="imagenet", include_top=False, pooling="avg")
-
-def predict_value_from_image_bytes(file_buffer, country=None):
-    if not TF_AVAILABLE:
-        return None
+    """Безопасная загрузка ResNet50"""
     try:
-        # загрузка ResNet и regressor (кэшируем)
+        if not TF_AVAILABLE:
+            st.error("⚠️ TensorFlow недоступен. Установи пакет 'tensorflow'.")
+            return None
+        from tensorflow.keras.applications import ResNet50
+        model = ResNet50(weights="imagenet", include_top=False, pooling="avg")
+        st.success("✅ Модель ResNet50 успешно загружена.")
+        return model
+    except Exception as e:
+        st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
+        return None
+
+
+# === АНАЛИЗ ИЗОБРАЖЕНИЯ ===
+def predict_value_from_image_bytes(file_buffer, country=None):
+    """Прогноз стоимости дома по фото"""
+    if not TF_AVAILABLE:
+        st.error("⚠️ TensorFlow не установлен.")
+        return None
+
+    try:
+        # Загружаем ResNet
         resnet = load_resnet_model()
-        
-        # Ищем модель среди возможных названий
-        possible_models = ["photo_meta.pkl", "photo_regressor.pkl"]
+        if resnet is None:
+            st.error("⚠️ Модель ResNet не инициализирована. Проверь TensorFlow.")
+            return None
+
+        # Ищем регрессионную модель
+        possible_models = ["photo_regressor.pkl", "photo_meta.pkl"]
         model_path = next(
             (os.path.join("model", f) for f in possible_models if os.path.exists(os.path.join("model", f))),
             None
@@ -163,29 +182,35 @@ def predict_value_from_image_bytes(file_buffer, country=None):
             st.error("❌ Модель фото-оценки не найдена. Проверь папку 'model'.")
             return None
 
-        # Загружаем модель
         m = joblib.load(model_path)
+
+        # если файл содержит только метаинформацию
+        if isinstance(m, dict) and "reg" not in m:
+            st.error("❌ В файле модели нет обученного регрессора. Перепроверь файл 'photo_regressor.pkl'.")
+            return None
+
         reg = m.get("reg") if isinstance(m, dict) else m
         enc = m.get("encoder") if isinstance(m, dict) else None
 
-        # обработка изображения
+        # Обработка изображения
         img = load_img(file_buffer, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
         feat = resnet.predict(x, verbose=0).flatten().reshape(1, -1)
 
-        # country -> onehot
+        # Кодируем страну, если есть encoder
         if enc is not None and country is not None:
             country_vec = enc.transform([[country]])
             X_in = np.concatenate([feat, country_vec], axis=1)
         else:
             X_in = feat
 
+        # Прогноз в лог-пространстве
         y_log_pred = reg.predict(X_in)[0]
         y_pred = float(np.expm1(y_log_pred))
 
-        # клипинг по мета
+        # Клипинг по перцентилям, если есть meta
         meta_path = os.path.join("model", "photo_meta.pkl")
         meta = joblib.load(meta_path) if os.path.exists(meta_path) else {}
         p05 = meta.get("p05", None)
@@ -193,10 +218,13 @@ def predict_value_from_image_bytes(file_buffer, country=None):
         if p05 is not None and p95 is not None:
             y_pred = max(p05, min(p95, y_pred))
 
+        st.success(f"✅ Прогноз выполнен (использована модель: {os.path.basename(model_path)})")
         return int(round(y_pred))
+
     except Exception as e:
-        st.error(f"Ошибка анализа фото: {e}")
+        st.error(f"⚠️ Ошибка анализа фото: {e}")
         return None
+
 
 
 # --- Интерфейс Streamlit ---
