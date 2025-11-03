@@ -165,65 +165,64 @@ def predict_value_from_image_bytes(file_buffer, country=None):
         return None
 
     try:
-        # Загружаем ResNet
         resnet = load_resnet_model()
         if resnet is None:
-            st.error("⚠️ Модель ResNet не инициализирована. Проверь TensorFlow.")
+            st.error("⚠️ Модель ResNet не инициализирована.")
             return None
 
-        # Ищем регрессионную модель
-        possible_models = ["photo_regressor.pkl", "photo_meta.pkl"]
-        model_path = next(
-            (os.path.join("model", f) for f in possible_models if os.path.exists(os.path.join("model", f))),
-            None
-        )
+        # --- загрузка обученной модели ---
+        model_path = None
+        for f in ["photo_meta.pkl", "photo_regressor.pkl"]:
+            p = os.path.join("model", f)
+            if os.path.exists(p):
+                model_path = p
+                break
 
         if not model_path:
-            st.error("❌ Модель фото-оценки не найдена. Проверь папку 'model'.")
+            st.error("❌ Файл модели не найден в папке model/.")
             return None
 
         m = joblib.load(model_path)
-
-        # если файл содержит только метаинформацию
-        if isinstance(m, dict) and "reg" not in m:
-            st.error("❌ В файле модели нет обученного регрессора. Перепроверь файл 'photo_regressor.pkl'.")
-            return None
-
         reg = m.get("reg") if isinstance(m, dict) else m
         enc = m.get("encoder") if isinstance(m, dict) else None
 
-        # Обработка изображения
+        # --- извлечение признаков ---
         img = load_img(file_buffer, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
         feat = resnet.predict(x, verbose=0).flatten().reshape(1, -1)
 
-        # Кодируем страну, если есть encoder
-        if enc is not None and country is not None:
-            country_vec = enc.transform([[country]])
+        # --- добавление страны ---
+        if enc is not None:
+            if country is None:
+                st.warning("⚠️ Страна не указана, добавлены нули.")
+                country_vec = np.zeros((1, enc.categories_[0].size))
+            else:
+                country_vec = enc.transform([[country]])
             X_in = np.concatenate([feat, country_vec], axis=1)
         else:
             X_in = feat
 
-        # Прогноз в лог-пространстве
+        # --- если форма не совпадает, расширим нулями ---
+        expected_dim = getattr(reg, "n_features_in_", X_in.shape[1])
+        if X_in.shape[1] < expected_dim:
+            pad = expected_dim - X_in.shape[1]
+            X_in = np.hstack([X_in, np.zeros((1, pad))])
+        elif X_in.shape[1] > expected_dim:
+            X_in = X_in[:, :expected_dim]
+
+        # --- прогноз ---
         y_log_pred = reg.predict(X_in)[0]
         y_pred = float(np.expm1(y_log_pred))
 
-        # Клипинг по перцентилям, если есть meta
-        meta_path = os.path.join("model", "photo_meta.pkl")
-        meta = joblib.load(meta_path) if os.path.exists(meta_path) else {}
-        p05 = meta.get("p05", None)
-        p95 = meta.get("p95", None)
-        if p05 is not None and p95 is not None:
-            y_pred = max(p05, min(p95, y_pred))
-
-        st.success(f"✅ Прогноз выполнен (использована модель: {os.path.basename(model_path)})")
+        st.success(f"✅ Прогноз выполнен. Использована модель: {os.path.basename(model_path)}")
         return int(round(y_pred))
 
     except Exception as e:
         st.error(f"⚠️ Ошибка анализа фото: {e}")
         return None
+
 
 
 
