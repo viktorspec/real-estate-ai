@@ -145,30 +145,48 @@ def load_resnet_model():
         return None
     return ResNet50(weights="imagenet", include_top=False, pooling="avg")
 
-def predict_value_from_image_bytes(file_buffer):
+def predict_value_from_image_bytes(file_buffer, country=None):
     if not TF_AVAILABLE:
         return None
     try:
-        # Загружаем ResNet50 для извлечения признаков
+        # загрузка ResNet и regressor (кэшируем)
         resnet = load_resnet_model()
-        # Загружаем обученную модель Виктора
         model_path = os.path.join("model", "photo_regressor.pkl")
-        regressor = joblib.load(model_path)
+        meta_path = os.path.join("model", "photo_meta.pkl")
+        if not os.path.exists(model_path):
+            st.error("Модель фото-оценки не найдена.")
+            return None
 
-        # Обработка изображения
-        img = load_img(file_buffer, target_size=(224, 224))
+        m = joblib.load(model_path)  # m: {"reg":..., "encoder":...} или reg если другой формат
+        reg = m.get("reg") if isinstance(m, dict) else m
+        enc = m.get("encoder") if isinstance(m, dict) else None
+
+        # обработка изображения
+        img = load_img(file_buffer, target_size=(224,224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
+        feat = resnet.predict(x, verbose=0).flatten().reshape(1, -1)
 
-        # Извлечение признаков
-        features = resnet.predict(x, verbose=0)
-        feat_flat = features.flatten().reshape(1, -1)
+        # country -> onehot
+        if enc is not None and country is not None:
+            country_vec = enc.transform([[country]])
+            X_in = np.concatenate([feat, country_vec], axis=1)
+        else:
+            # если encoder нет, просто прогнозим по визуалу
+            X_in = feat
 
-        # Прогноз
-        val = regressor.predict(feat_flat)[0]
-        val = int(max(50000, min(val, 2_000_000)))  # Ограничим диапазон
-        return val
+        y_log_pred = reg.predict(X_in)[0]
+        y_pred = float(np.expm1(y_log_pred))
+
+        # клипинг по мета
+        meta = joblib.load(meta_path) if os.path.exists(meta_path) else {}
+        p05 = meta.get("p05", None)
+        p95 = meta.get("p95", None)
+        if p05 is not None and p95 is not None:
+            y_pred = max(p05, min(p95, y_pred))
+
+        return int(round(y_pred))
     except Exception as e:
         st.error(f"Ошибка анализа фото: {e}")
         return None
