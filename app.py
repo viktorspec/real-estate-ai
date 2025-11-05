@@ -158,73 +158,46 @@ def load_resnet_model():
 
 
 # === АНАЛИЗ ИЗОБРАЖЕНИЯ ===
-def predict_value_from_image_bytes(file_buffer, country=None):
-    """Прогноз стоимости дома по фото (универсально работает с ResNet и RandomForest)"""
-    if not TF_AVAILABLE:
-        st.error("⚠️ TensorFlow не установлен.")
-        return None
+def predict_value_from_image_bytes(uploaded_file):
+    import numpy as np
+    from tensorflow.keras.preprocessing.image import load_img, img_to_array
+    from tensorflow.keras.applications.resnet50 import preprocess_input
 
     try:
-        # Загружаем ResNet
-        resnet = load_resnet_model()
-        if resnet is None:
-            st.error("⚠️ Модель ResNet не инициализирована. Проверь TensorFlow.")
-            return None
-
-        # Ищем регрессионную модель
-        possible_models = ["photo_regressor.pkl", "photo_meta.pkl"]
-        model_path = next(
-            (os.path.join("model", f) for f in possible_models if os.path.exists(os.path.join("model", f))),
-            None
-        )
-
-        if not model_path:
-            st.error("❌ Модель фото-оценки не найдена. Проверь папку 'model'.")
-            return None
-
-        m = joblib.load(model_path)
-
-        # если файл содержит только метаинформацию
-        if isinstance(m, dict) and "reg" not in m:
-            st.error("❌ В файле модели нет обученного регрессора. Перепроверь файл 'photo_regressor.pkl'.")
-            return None
-
-        reg = m.get("reg") if isinstance(m, dict) else m
-        enc = m.get("encoder") if isinstance(m, dict) else None
-
-        # Обработка изображения
-        img = load_img(file_buffer, target_size=(224, 224))
+        # Загружаем изображение
+        img = load_img(uploaded_file, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
-        feat = resnet.predict(x, verbose=0).flatten().reshape(1, -1)
 
-                # Кодируем страну, если есть encoder
-        if enc is not None and country is not None:
-            country_vec = enc.transform([[country]])
-            X_in = np.concatenate([feat, country_vec], axis=1)
+        # Извлекаем признаки из ResNet
+        feat = resnet_model.predict(x, verbose=0)
+        feat = feat.reshape(1, -1)
+
+        # Проверяем наличие кодировщика страны
+        if enc is not None:
+            try:
+                country_vec = enc.transform([["belarus"]])  # можно заменить на динамическое значение
+                X_in = np.concatenate([feat, country_vec], axis=1)
+            except Exception as e:
+                print(f"⚠️ Ошибка кодировщика: {e}")
+                X_in = feat
         else:
-            X_in = feat  # исправлено: всегда присваиваем X_in
+            X_in = feat
 
-        # Прогноз в лог-пространстве
+        # Проверяем, что модель регрессора загружена
+        if reg is None:
+            raise ValueError("❌ Модель регрессора не загружена!")
+
+        # Делаем предсказание
         y_log_pred = reg.predict(X_in)[0]
         y_pred = float(np.expm1(y_log_pred))
-
-
-        # Клипинг по перцентилям, если есть meta
-        meta_path = os.path.join("model", "photo_meta.pkl")
-        meta = joblib.load(meta_path) if os.path.exists(meta_path) else {}
-        p05 = meta.get("p05", None)
-        p95 = meta.get("p95", None)
-        if p05 is not None and p95 is not None:
-            y_pred = max(p05, min(p95, y_pred))
-
-        st.success(f"✅ Прогноз выполнен (использована модель: {os.path.basename(model_path)})")
-        return int(round(y_pred))
+        return y_pred
 
     except Exception as e:
-        st.error(f"⚠️ Ошибка анализа фото: {e}")
+        print(f"❌ Ошибка анализа фото: {e}")
         return None
+
 
 
 
