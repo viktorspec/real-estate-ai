@@ -164,39 +164,33 @@ def predict_value_from_image_bytes(uploaded_file):
     from tensorflow.keras.applications.resnet50 import preprocess_input
 
     try:
-        # Загружаем изображение
+        print("📸 Загружаем изображение...")
         img = load_img(uploaded_file, target_size=(224, 224))
         x = img_to_array(img)
         x = np.expand_dims(x, axis=0)
         x = preprocess_input(x)
 
-        # Извлекаем признаки из ResNet
+        print("🧠 Извлекаем признаки через ResNet50...")
         feat = resnet_model.predict(x, verbose=0)
         feat = feat.reshape(1, -1)
+        print(f"✅ Размер вектора признаков: {feat.shape}")
 
-        # Проверяем наличие кодировщика страны
-        if enc is not None:
-            try:
-                country_vec = enc.transform([["belarus"]])  # можно заменить на динамическое значение
-                X_in = np.concatenate([feat, country_vec], axis=1)
-            except Exception as e:
-                print(f"⚠️ Ошибка кодировщика: {e}")
-                X_in = feat
-        else:
-            X_in = feat
+        X_in = feat  # просто используем признаки ResNet50 без дополнительных данных
 
-        # Проверяем, что модель регрессора загружена
         if reg is None:
             raise ValueError("❌ Модель регрессора не загружена!")
 
-        # Делаем предсказание
-        y_log_pred = reg.predict(X_in)[0]
-        y_pred = float(np.expm1(y_log_pred))
-        return y_pred
+        print("📈 Делаем предсказание цены...")
+        y_pred = reg.predict(X_in)[0]
+        print(f"✅ Предсказание модели: {y_pred}")
+        return float(y_pred)
 
     except Exception as e:
         print(f"❌ Ошибка анализа фото: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+
 
 
 
