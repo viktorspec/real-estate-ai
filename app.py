@@ -159,6 +159,8 @@ def load_resnet_model():
 
 # === АНАЛИЗ ИЗОБРАЖЕНИЯ ===
 def predict_value_from_image_bytes(uploaded_file):
+    global resnet_model, reg  # 🔥 добавляем доступ к глобальным моделям
+
     import numpy as np
     from tensorflow.keras.preprocessing.image import load_img, img_to_array
     from tensorflow.keras.applications.resnet50 import preprocess_input
@@ -175,7 +177,7 @@ def predict_value_from_image_bytes(uploaded_file):
         feat = feat.reshape(1, -1)
         print(f"✅ Размер вектора признаков: {feat.shape}")
 
-        X_in = feat  # просто используем признаки ResNet50 без дополнительных данных
+        X_in = feat  # просто используем признаки ResNet50 без метаданных
 
         if reg is None:
             raise ValueError("❌ Модель регрессора не загружена!")
@@ -190,6 +192,7 @@ def predict_value_from_image_bytes(uploaded_file):
         import traceback
         traceback.print_exc()
         return None
+
 
 
 
