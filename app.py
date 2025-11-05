@@ -199,16 +199,17 @@ def predict_value_from_image_bytes(file_buffer, country=None):
         x = preprocess_input(x)
         feat = resnet.predict(x, verbose=0).flatten().reshape(1, -1)
 
-        # Кодируем страну, если есть encoder
+                # Кодируем страну, если есть encoder
         if enc is not None and country is not None:
             country_vec = enc.transform([[country]])
             X_in = np.concatenate([feat, country_vec], axis=1)
         else:
-            X = feat
+            X_in = feat  # исправлено: всегда присваиваем X_in
 
         # Прогноз в лог-пространстве
         y_log_pred = reg.predict(X_in)[0]
         y_pred = float(np.expm1(y_log_pred))
+
 
         # Клипинг по перцентилям, если есть meta
         meta_path = os.path.join("model", "photo_meta.pkl")
