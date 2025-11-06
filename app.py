@@ -297,14 +297,24 @@ with tab1:
 if plan.lower() == "premium" and rest:
     with rest[0]:
         st.header(TXT["photo_upload"])
-        photo = st.file_uploader("📷 Фото недвижимости", type=["jpg","jpeg","png"])
-        if photo:
-            val = predict_value_from_image_bytes(photo)
-            if val:
-                st.success(TXT["photo_result"].format(price=val))
-            else:
-                st.error("⚠️ Ошибка анализа изображения.")
+        photo = st.file_uploader(
+            "📷 Фото недвижимости",
+            type=["jpg", "jpeg", "png"],
+            key="photo_uploader_premium"
+        )
 
+        if photo:
+            import traceback
+            try:
+                st.info("🔍 Анализ изображения, подождите...")
+                val = predict_value_from_image_bytes(photo)
+                if val is not None:
+                    st.success(TXT["photo_result"].format(price=int(val)))
+                else:
+                    st.error("⚠️ Ошибка анализа изображения (None).")
+            except Exception as e:
+                st.error(f"❌ Ошибка анализа фото: {e}")
+                st.text(traceback.format_exc())
 # --- FAQ (двуязычный) ---
 with st.expander("📖 FAQ"):
     if lang == "RU":
@@ -371,27 +381,6 @@ ResNet50 analyses the photo and estimates the price (±5% accuracy).
 """
     st.markdown(faq_text)
 
-# --- Анализ фото (Premium) ---
-# --- Анализ фото (Premium) ---
-if plan.lower() == "premium" and rest:
-    with rest[0]:
-        st.header(TXT["photo_upload"])
-        photo = st.file_uploader(
-            "📷 Фото недвижимости",
-            type=["jpg", "jpeg", "png"],
-            key="photo_uploader_premium"
-        )
 
-        if photo:
-            import traceback
-            try:
-                st.info("🔍 Анализ изображения, подождите...")
-                val = predict_value_from_image_bytes(photo)
-                if val is not None:
-                    st.success(TXT["photo_result"].format(price=int(val)))
-                else:
-                    st.error("⚠️ Ошибка анализа изображения (None).")
-            except Exception as e:
-                st.error(f"❌ Ошибка анализа фото: {e}")
-                st.text(traceback.format_exc())
+
 
