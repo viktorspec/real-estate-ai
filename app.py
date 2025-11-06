@@ -187,11 +187,12 @@ def predict_value_from_image_bytes(uploaded_file):
         print(f"✅ Предсказание модели: {y_pred}")
         return float(y_pred)
 
-    except Exception as e:
-        print(f"❌ Ошибка анализа фото: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+   except Exception as e:
+    import traceback
+    print(f"❌ Ошибка анализа фото: {e}")
+    traceback.print_exc()
+    st.error(f"Ошибка анализа изображения: {e}")  # ⬅ добавь эту строку
+    return None
 
 
 
