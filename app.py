@@ -198,6 +198,7 @@ def predict_value_from_image_bytes(uploaded_file):
 
 
 
+
 # --- Интерфейс Streamlit ---
 st.set_page_config(page_title="Real Estate AI", layout="wide")
 lang = st.sidebar.selectbox("🌐 Language / Язык", ["RU","EN"])
