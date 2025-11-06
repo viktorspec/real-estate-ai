@@ -375,7 +375,8 @@ ResNet50 analyses the photo and estimates the price (±5% accuracy).
 if plan.lower() == "premium" and rest:
     with rest[0]:
         st.header(TXT["photo_upload"])
-        photo = st.file_uploader("📷 Фото недвижимости", type=["jpg", "jpeg", "png"])
+       photo = st.file_uploader("📷 Фото недвижимости", type=["jpg", "jpeg", "png"], key="photo_uploader_premium")
+
 
         if photo:
             import traceback
