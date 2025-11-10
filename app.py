@@ -11,6 +11,8 @@ from datetime import datetime
 from io import BytesIO
 import streamlit as st
 from google.oauth2.service_account import Credentials
+pip install gspread
+
 
 
 # --- Попытка импортировать XGBoost (если установлен) ---
