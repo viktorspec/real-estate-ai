@@ -10,6 +10,8 @@ from sklearn.ensemble import RandomForestRegressor
 from datetime import datetime
 from io import BytesIO
 import streamlit as st
+from google.oauth2.service_account import Credentials
+
 
 # --- Попытка импортировать XGBoost (если установлен) ---
 try:
