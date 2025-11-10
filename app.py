@@ -2,7 +2,7 @@
 # Автор: доработка для Виктора Евтушенко
 # Комментарии на русском для понимания логики
 import os
-from turtle import pd
+from pandas import pd
 import joblib
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
