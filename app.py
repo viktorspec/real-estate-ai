@@ -1,31 +1,41 @@
 # app.py — Real Estate AI (Production-ready, Kaggle data + pretrained models)
 # Автор: доработка для Виктора Евтушенко
 # Комментарии на русском для понимания логики
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+import os
+from turtle import pd
+import joblib
+from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from datetime import datetime
 from io import BytesIO
-import joblib
-import os
+import streamlit as st
 
 # --- Попытка импортировать XGBoost (если установлен) ---
 try:
-    import xgboost as xgb
-    XGBOOST_AVAILABLE = True
+    from xgboost import XGBRegressor
+    XGB_AVAILABLE = True
 except Exception:
-    XGBOOST_AVAILABLE = False
+    XGB_AVAILABLE = False
 
-# --- Попытка импортировать TensorFlow для Premium-модуля ---
+# --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
 try:
-    from tensorflow.keras.applications import ResNet50
-    from tensorflow.keras.applications.resnet50 import preprocess_input
-    from tensorflow.keras.preprocessing.image import load_img, img_to_array
-    TF_AVAILABLE = True
+    import importlib
+    # Проверяем доступность пакетов без фактического импорта (устраняет предупреждения линтеров)
+    torch_spec = importlib.util.find_spec("torch")
+    tv_spec = importlib.util.find_spec("torchvision")
+    pil_spec = importlib.util.find_spec("PIL")
+    np_spec = importlib.util.find_spec("numpy")
+    if torch_spec and tv_spec and pil_spec and np_spec:
+        import torch
+        import torch.nn as nn
+        from torchvision import models, transforms
+        from PIL import Image
+        import io
+        import numpy as np
+        TF_AVAILABLE = True
+    else:
+        TF_AVAILABLE = False
 except Exception:
     TF_AVAILABLE = False
 
@@ -140,7 +150,6 @@ def load_pretrained_model(model_type):
     return None
 
 
-# === ЗАГРУЗКА RESNET МОДЕЛИ ===
 @st.cache_resource
 def load_resnet_model():
     """Безопасная загрузка ResNet50"""
@@ -148,51 +157,68 @@ def load_resnet_model():
         if not TF_AVAILABLE:
             st.error("⚠️ TensorFlow недоступен. Установи пакет 'tensorflow'.")
             return None
-        from tensorflow.keras.applications import ResNet50
-        model = ResNet50(weights="imagenet", include_top=False, pooling="avg")
+        
+        model = models.resnet50(weights="imagenet", include_top=False, pooling="avg")
         st.success("✅ Модель ResNet50 успешно загружена.")
         return model
     except Exception as e:
         st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
         return None
+        return None
 
 
-# === АНАЛИЗ ИЗОБРАЖЕНИЯ ===
+# === АНАЛИЗ ИЗОБРАЖЕНИЯ (PyTorch версия) ===
 def predict_value_from_image_bytes(uploaded_file):
-    global resnet_model, reg  # 🔥 добавляем доступ к глобальным моделям
+    global reg  # используем глобальную модель регрессора
 
+    import torch
+    from torchvision import models, transforms
+    from PIL import Image
     import numpy as np
-    from tensorflow.keras.preprocessing.image import load_img, img_to_array
-    from tensorflow.keras.applications.resnet50 import preprocess_input
 
     try:
-        print("📸 Загружаем изображение...")
-        img = load_img(uploaded_file, target_size=(224, 224))
-        x = img_to_array(img)
-        x = np.expand_dims(x, axis=0)
-        x = preprocess_input(x)
+        print("🖼 Загружаем изображение...")
 
-        print("🧠 Извлекаем признаки через ResNet50...")
-        feat = resnet_model.predict(x, verbose=0)
-        feat = feat.reshape(1, -1)
-        print(f"✅ Размер вектора признаков: {feat.shape}")
+        # Загружаем ResNet50 с весами ImageNet
+        resnet_model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        resnet_model.eval()  # переводим в режим инференса
+        feature_extractor = torch.nn.Sequential(*list(resnet_model.children())[:-1])  # убираем последний классификатор
 
-        X_in = feat  # просто используем признаки ResNet50 без метаданных
+        # Трансформации изображения (соответствуют TensorFlow-ResNet)
+        preprocess = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+        ])
+
+        # Открываем изображение
+        image = Image.open(uploaded_file).convert("RGB")
+        img_tensor = preprocess(image).unsqueeze(0)  # добавляем batch dimension
+
+        print("📊 Извлекаем признаки через ResNet50...")
+        with torch.no_grad():
+            features = feature_extractor(img_tensor).squeeze().numpy()
+
+        print(f"Размер вектора признаков: {features.shape}")
 
         if reg is None:
             raise ValueError("❌ Модель регрессора не загружена!")
 
         print("📈 Делаем предсказание цены...")
-        y_pred = reg.predict(X_in)[0]
-        print(f"✅ Предсказание модели: {y_pred}")
+        y_pred = reg.predict([features])[0]
+        print(f"💰 Предсказание модели: {y_pred:.2f}")
+
         return float(y_pred)
 
-   except Exception as e:
-    import traceback
-    print(f"❌ Ошибка анализа фото: {e}")
-    traceback.print_exc()
-    st.error(f"Ошибка анализа изображения: {e}")  # ⬅ добавь эту строку
-    return None
+    except Exception as e:
+        import traceback
+        print(f"❌ Ошибка анализа фото: {e}")
+        traceback.print_exc()
+        st.error(f"Ошибка анализа изображения: {e}")
+        return None
 
 
 
@@ -262,7 +288,7 @@ with tab1:
         model_choice = "linear"
         if plan.lower() in ["pro", "premium"]:
             options = ["Linear Regression", "Random Forest"]
-            if XGBOOST_AVAILABLE:
+            if XGB_AVAILABLE:  # ✅ исправлено с XGBOOST_AVAILABLE на XGB_AVAILABLE
                 options.append("XGBoost")
             choice = st.selectbox("Выберите модель / Select model:", options)
             if choice == "Random Forest": model_choice = "rf"
