@@ -164,7 +164,6 @@ def load_resnet_model():
     except Exception as e:
         st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
         return None
-        return None
 
 
 # === АНАЛИЗ ИЗОБРАЖЕНИЯ (PyTorch версия) ===
@@ -219,7 +218,6 @@ def predict_value_from_image_bytes(uploaded_file):
         traceback.print_exc()
         st.error(f"Ошибка анализа изображения: {e}")
         return None
-
 
 
 
@@ -407,7 +405,3 @@ After prediction, click 💾 “Download predictions (CSV)”.
 ResNet50 analyses the photo and estimates the price (±5% accuracy).
 """
     st.markdown(faq_text)
-
-
-
-
