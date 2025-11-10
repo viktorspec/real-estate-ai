@@ -2,7 +2,7 @@
 # Автор: доработка для Виктора Евтушенко
 # Комментарии на русском для понимания логики
 import os
-from pandas import pd
+import pandas as pd
 import joblib
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
@@ -18,6 +18,9 @@ try:
 except Exception:
     XGB_AVAILABLE = False
 
+# --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
+import importlib
+# Проверяем доступность пакетов без фактического импорта (устраняет предупреждения линтеров)
 # --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
 try:
     import importlib
@@ -38,11 +41,6 @@ try:
         TF_AVAILABLE = False
 except Exception:
     TF_AVAILABLE = False
-
-# --- DEV MODE (без Google Sheets) ---
-DEV_MODE = st.secrets.get("DEV_MODE", False) if "DEV_MODE" in st.secrets else False
-
-if not DEV_MODE:
     import gspread
     from google.oauth2.service_account import Credentials
 
@@ -55,6 +53,9 @@ def get_gcp_credentials_from_secrets():
             "https://www.googleapis.com/auth/drive",
         ],
     )
+
+# --- DEV_MODE: True для локальной отладки, False для продакшн ---
+DEV_MODE = os.environ.get("DEV_MODE", "False").lower() == "true"
 
 if not DEV_MODE:
     creds = get_gcp_credentials_from_secrets()
@@ -405,3 +406,8 @@ After prediction, click 💾 “Download predictions (CSV)”.
 ResNet50 analyses the photo and estimates the price (±5% accuracy).
 """
     st.markdown(faq_text)
+
+
+
+
+
