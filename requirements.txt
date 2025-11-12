@@ -1,14 +1,17 @@
-# requirements_app.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+torchvision==0.19.1+cpu
+pillow
+numpy
 streamlit
 pandas
-numpy
-matplotlib
 scikit-learn
 xgboost
-tensorflow
-openpyxl
 gspread
 google-auth
+google-auth-oauthlib
+joblib
+matplotlib
 
 
 
