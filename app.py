@@ -22,6 +22,7 @@ try:
 except Exception:
     XGB_AVAILABLE = False
 
+# ...existing code...
 # --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
 import importlib
 
@@ -39,13 +40,44 @@ try:
         from PIL import Image
         import io
         import numpy as np
-        TF_AVAILABLE = True
+        TORCH_AVAILABLE = True
     else:
-        TF_AVAILABLE = False
+        TORCH_AVAILABLE = False
         st.warning("⚠️ PyTorch не установлен. Функция анализа фото недоступна.")
 except Exception as e:
-    TF_AVAILABLE = False
+    TORCH_AVAILABLE = False
     print(f"⚠️ Ошибка импорта PyTorch: {e}")
+# ...existing code...
+@st.cache_resource
+def load_resnet_model():
+    """Безопасная загрузка ResNet50 (torch/torchvision)"""
+    try:
+        if not TORCH_AVAILABLE:
+            st.error("⚠️ PyTorch/torchvision недоступны. Установи пакеты 'torch' и 'torchvision'.")
+            return None
+
+        import torch
+        from torchvision import models
+
+        # Загружаем ResNet50 с ImageNet-весами (новый API torchvision)
+        resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        resnet.eval()
+        # убираем последний classifier (fc) — возвращаем feature extractor
+        feature_extractor = torch.nn.Sequential(*list(resnet.children())[:-1])
+        st.success("✅ Модель ResNet50 успешно загружена.")
+        return feature_extractor
+    except Exception as e:
+        st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
+        return None
+# ...existing code...
+def predict_value_from_image_bytes(uploaded_file):
+    """Анализ изображения недвижимости (PyTorch)"""
+    global reg
+    
+    if not TORCH_AVAILABLE:
+        st.error("❌ PyTorch не установлен. Установите: pip install torch torchvision")
+        return None
+# ...existing code...
 
 # --- Google Sheets авторизация ---
 def get_gcp_credentials_from_secrets():
@@ -158,25 +190,29 @@ def load_pretrained_model(model_type):
 def load_resnet_model():
     """Безопасная загрузка ResNet50"""
     try:
-        if not TF_AVAILABLE:
-            st.error("⚠️ TensorFlow недоступен. Установи пакет 'tensorflow'.")
+        if not TORCH_AVAILABLE:
+            st.error("⚠️ PyTorch не установлен. Установи пакеты 'torch' и 'torchvision'.")
             return None
         
-        model = models.resnet50(weights="imagenet", include_top=False, pooling="avg")
+        import torch
+        from torchvision import models
+        
+        resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        resnet.eval()
+        feature_extractor = torch.nn.Sequential(*list(resnet.children())[:-1])
         st.success("✅ Модель ResNet50 успешно загружена.")
-        return model
+        return feature_extractor
     except Exception as e:
         st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
-        return None
-        return None
-
-
-# === АНАЛИЗ ИЗОБРАЖЕНИЯ (PyTorch версия) ===
 def predict_value_from_image_bytes(uploaded_file):
     """Анализ изображения недвижимости"""
     global reg
     
-    if not TF_AVAILABLE:
+    if not TORCH_AVAILABLE:
+        st.error("❌ PyTorch не установлен. Установите: pip install torch torchvision")
+        return None
+    
+    if not TORCH_AVAILABLE:
         st.error("❌ PyTorch не установлен. Установите: pip install torch torchvision")
         return None
     
@@ -415,6 +451,7 @@ After prediction, click 💾 “Download predictions (CSV)”.
 ResNet50 analyses the photo and estimates the price (±5% accuracy).
 """
     st.markdown(faq_text)
+
 
 
 
