@@ -24,15 +24,14 @@ except Exception:
 
 # --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
 import importlib
-# Проверяем доступность пакетов без фактического импорта (устраняет предупреждения линтеров)
+
 # --- Попытка импортировать PyTorch и Pillow для Premium-модуля ---
 try:
-    import importlib
-    # Проверяем доступность пакетов без фактического импорта (устраняет предупреждения линтеров)
     torch_spec = importlib.util.find_spec("torch")
     tv_spec = importlib.util.find_spec("torchvision")
     pil_spec = importlib.util.find_spec("PIL")
     np_spec = importlib.util.find_spec("numpy")
+    
     if torch_spec and tv_spec and pil_spec and np_spec:
         import torch
         import torch.nn as nn
@@ -43,10 +42,10 @@ try:
         TF_AVAILABLE = True
     else:
         TF_AVAILABLE = False
-except Exception:
+        st.warning("⚠️ PyTorch не установлен. Функция анализа фото недоступна.")
+except Exception as e:
     TF_AVAILABLE = False
-    import gspread
-    from google.oauth2.service_account import Credentials
+    print(f"⚠️ Ошибка импорта PyTorch: {e}")
 
 # --- Google Sheets авторизация ---
 def get_gcp_credentials_from_secrets():
@@ -169,12 +168,18 @@ def load_resnet_model():
     except Exception as e:
         st.error(f"⚠️ Ошибка загрузки ResNet50: {e}")
         return None
+        return None
 
 
 # === АНАЛИЗ ИЗОБРАЖЕНИЯ (PyTorch версия) ===
 def predict_value_from_image_bytes(uploaded_file):
-    global reg  # используем глобальную модель регрессора
-
+    """Анализ изображения недвижимости"""
+    global reg
+    
+    if not TF_AVAILABLE:
+        st.error("❌ PyTorch не установлен. Установите: pip install torch torchvision")
+        return None
+    
     import torch
     from torchvision import models, transforms
     from PIL import Image
@@ -410,6 +415,11 @@ After prediction, click 💾 “Download predictions (CSV)”.
 ResNet50 analyses the photo and estimates the price (±5% accuracy).
 """
     st.markdown(faq_text)
+
+
+
+
+
 
 
 
