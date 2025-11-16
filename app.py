@@ -224,8 +224,8 @@ with tab1:
 
         # --- График ---
         fig, ax = plt.subplots()
-        ax.scatter(df["GrLivArea"], df["Price"], color="blue", label="Фактическая цена")
-        ax.scatter(df["GrLivArea"], df["PredictedPrice"], color="red", label="Прогноз")
+        ax.scatter(df["GrLivArea"], df["Price"], label="Фактическая цена")
+        ax.scatter(df["GrLivArea"], df["PredictedPrice"], label="Прогноз")
         ax.set_xlabel(TXT["xlabel"])
         ax.set_ylabel(TXT["ylabel"])
         ax.legend()
@@ -235,10 +235,11 @@ with tab1:
         csv_data = df.to_csv(index=False).encode("utf-8")
         st.download_button(TXT["download"], csv_data, "predictions.csv", "text/csv")
 
-        # --- Скачать график ---
+        # --- Скачать PNG ---
         buf = BytesIO()
         fig.savefig(buf, format="png")
         st.download_button(TXT["download_png"], buf.getvalue(), "plot.png", "image/png")
+
 
 
 
