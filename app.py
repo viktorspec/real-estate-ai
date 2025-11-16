@@ -13,6 +13,12 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 import gspread
 
+
+
+st.write("SECRETS LOADED:", "gcp_service_account" in st.secrets)
+st.write(st.secrets)
+
+
 # --- Попытка импортировать XGBoost ---
 try:
     from xgboost import XGBRegressor
