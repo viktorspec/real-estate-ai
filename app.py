@@ -12,7 +12,7 @@ from io import BytesIO
 import streamlit as st
 from google.oauth2.service_account import Credentials
 import gspread
-import joblib
+
 
 
 
